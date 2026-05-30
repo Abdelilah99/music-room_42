@@ -16,6 +16,7 @@ import (
 	"music-room/internal/model"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -26,12 +27,12 @@ func init() {
 // Mock User Repository
 type mockUserRepo struct {
 	mu    sync.RWMutex
-	users map[string]*model.User
+	users map[uuid.UUID]*model.User
 }
 
 func newMockUserRepo() *mockUserRepo {
 	return &mockUserRepo{
-		users: make(map[string]*model.User),
+		users: make(map[uuid.UUID]*model.User),
 	}
 }
 
@@ -46,7 +47,7 @@ func (m *mockUserRepo) GetByEmail(ctx context.Context, email string) (*model.Use
 	return nil, nil
 }
 
-func (m *mockUserRepo) GetByID(ctx context.Context, id string) (*model.User, error) {
+func (m *mockUserRepo) GetByID(ctx context.Context, id uuid.UUID) (*model.User, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	u, ok := m.users[id]
@@ -60,7 +61,7 @@ func (m *mockUserRepo) Create(ctx context.Context, email, passwordHash string) (
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	u := &model.User{
-		ID:               "user-uuid-" + email,
+		ID:               uuid.New(),
 		Email:            email,
 		PasswordHash:     passwordHash,
 		IsVerified:       true,
@@ -86,7 +87,7 @@ func newMockRefreshTokenRepo() *mockRefreshTokenRepo {
 func (m *mockRefreshTokenRepo) Create(ctx context.Context, token *model.RefreshToken) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	token.ID = "token-uuid-" + token.TokenHash[:8]
+	token.ID = uuid.New()
 	token.CreatedAt = time.Now()
 	m.tokens[token.TokenHash] = token
 	return nil
@@ -102,7 +103,7 @@ func (m *mockRefreshTokenRepo) GetByHash(ctx context.Context, tokenHash string) 
 	return t, nil
 }
 
-func (m *mockRefreshTokenRepo) Revoke(ctx context.Context, id string) error {
+func (m *mockRefreshTokenRepo) Revoke(ctx context.Context, id uuid.UUID) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, t := range m.tokens {
@@ -115,7 +116,7 @@ func (m *mockRefreshTokenRepo) Revoke(ctx context.Context, id string) error {
 	return errors.New("token not found")
 }
 
-func (m *mockRefreshTokenRepo) RevokeAllForUser(ctx context.Context, userID string) error {
+func (m *mockRefreshTokenRepo) RevokeAllForUser(ctx context.Context, userID uuid.UUID) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	now := time.Now()
@@ -138,8 +139,9 @@ func TestJWTService(t *testing.T) {
 	}()
 
 	s := auth.NewJWTService()
+	userID := uuid.New()
 	user := &model.User{
-		ID:               "123",
+		ID:               userID,
 		Email:            "test@example.com",
 		SubscriptionTier: "premium",
 	}
@@ -154,8 +156,8 @@ func TestJWTService(t *testing.T) {
 		t.Fatalf("failed to validate access token: %v", err)
 	}
 
-	if claims.UserID != user.ID {
-		t.Errorf("expected user ID %s, got %s", user.ID, claims.UserID)
+	if claims.UserID != userID.String() {
+		t.Errorf("expected user ID %s, got %s", userID.String(), claims.UserID)
 	}
 
 	if claims.SubscriptionTier != "premium" {
@@ -218,7 +220,8 @@ func TestAuthMiddleware(t *testing.T) {
 	}
 
 	// Test 3: Valid Access Token
-	user := &model.User{ID: "user-456", Email: "test@example.com"}
+	userID := uuid.New()
+	user := &model.User{ID: userID, Email: "test@example.com"}
 	token, _ := s.GenerateAccessToken(user)
 	w = httptest.NewRecorder()
 	req, _ = http.NewRequest(http.MethodGet, "/test", nil)
@@ -227,15 +230,17 @@ func TestAuthMiddleware(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d", w.Code)
 	}
-	if w.Body.String() != "user-456" {
-		t.Errorf("expected user-456 in body, got %s", w.Body.String())
+	if w.Body.String() != userID.String() {
+		t.Errorf("expected %s in body, got %s", userID.String(), w.Body.String())
 	}
 }
 
 func TestRequireOwnership(t *testing.T) {
+	userID := uuid.New()
+	userIDStr := userID.String()
 	r := gin.New()
 	r.GET("/users/:id", func(c *gin.Context) {
-		c.Set("user_id", "user-123")
+		c.Set("user_id", userIDStr)
 		c.Next()
 	}, auth.RequireOwnership("id"), func(c *gin.Context) {
 		c.Status(http.StatusOK)
@@ -243,15 +248,16 @@ func TestRequireOwnership(t *testing.T) {
 
 	// Test 1: Match
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodGet, "/users/user-123", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/users/"+userIDStr, nil)
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d", w.Code)
 	}
 
 	// Test 2: Mismatch
+	otherID := uuid.New()
 	w = httptest.NewRecorder()
-	req, _ = http.NewRequest(http.MethodGet, "/users/user-456", nil)
+	req, _ = http.NewRequest(http.MethodGet, "/users/"+otherID.String(), nil)
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusForbidden {
 		t.Errorf("expected 403, got %d", w.Code)

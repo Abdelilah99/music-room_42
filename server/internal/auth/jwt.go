@@ -61,14 +61,14 @@ func NewJWTService() *JWTService {
 func (s *JWTService) GenerateAccessToken(user *model.User) (string, error) {
 	now := time.Now()
 	claims := Claims{
-		UserID:           user.ID,
+		UserID:           user.ID.String(),
 		Email:            user.Email,
 		SubscriptionTier: user.SubscriptionTier,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(now.Add(s.accessTTL)),
 			IssuedAt:  jwt.NewNumericDate(now),
 			NotBefore: jwt.NewNumericDate(now),
-			Subject:   user.ID,
+			Subject:   user.ID.String(),
 		},
 	}
 
