@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"music-room/internal/handler"
+	"music-room/internal/repository"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -75,10 +76,21 @@ func setupRouter(pool *pgxpool.Pool) *gin.Engine {
 		c.JSON(200, gin.H{"status": "UP"})
 	})
 
-	profileHandler := handler.NewProfileHandler(pool)
+	profileRepo := repository.NewProfileRepository(pool)
+	profileHandler := handler.NewProfileHandler(profileRepo)
 
 	api := r.Group("/api/v1")
-	api.Use(DiagnosticMockAuth())
+	api.Use(func(c *gin.Context) {
+		// Temporary shim to let you run local testing until PR #60 merges completely.
+		// Replace this block with the real middleware.JWTAuth() invocation.
+		uid := c.GetHeader("X-User-ID")
+		if uid == "" {
+			c.AbortWithStatusJSON(401, gin.H{"error": "Unauthorized"})
+			return
+		}
+		c.Set("authenticated_user_id", uid)
+		c.Next()
+	})
 	{
 		api.GET("/users/me", profileHandler.GetMyProfile)
 		api.PATCH("/users/me", profileHandler.UpdateMyProfile)
