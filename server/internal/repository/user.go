@@ -5,13 +5,14 @@ import (
 	"errors"
 	"music-room/internal/model"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type UserRepository interface {
 	GetByEmail(ctx context.Context, email string) (*model.User, error)
-	GetByID(ctx context.Context, id string) (*model.User, error)
+	GetByID(ctx context.Context, id uuid.UUID) (*model.User, error)
 	Create(ctx context.Context, email, passwordHash string) (*model.User, error)
 }
 
@@ -43,7 +44,7 @@ func (r *PostgresUserRepository) GetByEmail(ctx context.Context, email string) (
 	return &u, nil
 }
 
-func (r *PostgresUserRepository) GetByID(ctx context.Context, id string) (*model.User, error) {
+func (r *PostgresUserRepository) GetByID(ctx context.Context, id uuid.UUID) (*model.User, error) {
 	query := `SELECT id, email, password_hash, is_verified, subscription_tier, created_at FROM users WHERE id = $1`
 	var u model.User
 	err := r.pool.QueryRow(ctx, query, id).Scan(

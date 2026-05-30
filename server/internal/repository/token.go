@@ -6,6 +6,7 @@ import (
 	"time"
 	"music-room/internal/model"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -13,8 +14,8 @@ import (
 type RefreshTokenRepository interface {
 	Create(ctx context.Context, token *model.RefreshToken) error
 	GetByHash(ctx context.Context, tokenHash string) (*model.RefreshToken, error)
-	Revoke(ctx context.Context, id string) error
-	RevokeAllForUser(ctx context.Context, userID string) error
+	Revoke(ctx context.Context, id uuid.UUID) error
+	RevokeAllForUser(ctx context.Context, userID uuid.UUID) error
 }
 
 type PostgresRefreshTokenRepository struct {
@@ -51,13 +52,13 @@ func (r *PostgresRefreshTokenRepository) GetByHash(ctx context.Context, tokenHas
 	return &t, nil
 }
 
-func (r *PostgresRefreshTokenRepository) Revoke(ctx context.Context, id string) error {
+func (r *PostgresRefreshTokenRepository) Revoke(ctx context.Context, id uuid.UUID) error {
 	query := `UPDATE refresh_tokens SET revoked_at = $1 WHERE id = $2`
 	_, err := r.pool.Exec(ctx, query, time.Now(), id)
 	return err
 }
 
-func (r *PostgresRefreshTokenRepository) RevokeAllForUser(ctx context.Context, userID string) error {
+func (r *PostgresRefreshTokenRepository) RevokeAllForUser(ctx context.Context, userID uuid.UUID) error {
 	query := `UPDATE refresh_tokens SET revoked_at = $1 WHERE user_id = $2 AND revoked_at IS NULL`
 	_, err := r.pool.Exec(ctx, query, time.Now(), userID)
 	return err
