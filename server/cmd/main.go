@@ -46,6 +46,7 @@ func main() {
 	}
 	log.Println("Database connection established")
 
+<<<<<<< HEAD
 	// Registration repositories and services
 	authRepo := repository.NewAuthRepository(pool)
 	emailSvc := service.NewEmailService(
@@ -65,6 +66,9 @@ func main() {
 	jwtHandler := auth.NewHandler(userRepo, tokenRepo, jwtService)
 
 	r := setupRouter(authHandler, jwtHandler, jwtService)
+=======
+	r := setupRouter(pool)
+>>>>>>> d082daf (fix: remove global DBpool, add email verification check, move routes to /api/v1/auth)
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -83,6 +87,7 @@ func setupRouter(authHandler *handler.AuthHandler, jwtHandler *auth.Handler, jwt
 		c.JSON(200, gin.H{"status": "UP"})
 	})
 
+<<<<<<< HEAD
 	// Versioned API routes
 	v1 := r.Group("/api/v1")
 	{
@@ -99,6 +104,39 @@ func setupRouter(authHandler *handler.AuthHandler, jwtHandler *auth.Handler, jwt
 			auth.POST("/refresh", jwtHandler.Refresh)
 			auth.POST("/logout", jwtHandler.Logout)
 		}
+=======
+	v1 := r.Group("/api/v1")
+	{
+		auth := v1.Group("/auth")
+		{
+			auth.POST("/login", authHandler.Login)
+			auth.POST("/refresh", authHandler.Refresh)
+			auth.POST("/logout", authHandler.Logout)
+		}
+	}
+
+	apiGroup := r.Group("/api")
+	apiGroup.Use(authMiddleware.Authenticate())
+	{
+		apiGroup.GET("/profile", func(c *gin.Context) {
+			userID, _ := c.Get("user_id")
+			email, _ := c.Get("email")
+			tier, _ := c.Get("subscription_tier")
+			c.JSON(200, gin.H{
+				"user_id":           userID,
+				"email":            email,
+				"subscription_tier": tier,
+			})
+		})
+
+		apiGroup.GET("/users/:id", auth.RequireOwnership("id"), func(c *gin.Context) {
+			userID := c.Param("id")
+			c.JSON(200, gin.H{
+				"message": "Access granted to user resource",
+				"id":      userID,
+			})
+		})
+>>>>>>> d082daf (fix: remove global DBpool, add email verification check, move routes to /api/v1/auth)
 	}
 
 	return r

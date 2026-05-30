@@ -58,6 +58,11 @@ func (h *Handler) Login(c *gin.Context) {
 		return
 	}
 
+	if !user.IsVerified {
+		c.JSON(http.StatusForbidden, gin.H{"error": "email not verified"})
+		return
+	}
+
 	accessToken, refreshTokenStr, err := h.generateTokenPair(c.Request.Context(), user)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate tokens"})
