@@ -1,0 +1,48 @@
+name: Merge Guard
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+jobs:
+  author-ready:
+    name: author-ready
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enforce author-only merge
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_NUMBER="${{ github.event.pull_request.number }}"
+          PR_AUTHOR="${{ github.event.pull_request.user.login }}"
+          ACTOR="${{ github.actor }}"
+          REPO="${{ github.repository }}"
+          EVENT="${{ github.event.action }}"
+          LABEL="${{ github.event.label.name }}"
+
+          # If the ready-to-merge label was just added, check who added it
+          if [ "$EVENT" = "labeled" ] && [ "$LABEL" = "ready-to-merge" ]; then
+            if [ "$ACTOR" != "$PR_AUTHOR" ]; then
+              PERMISSION=$(gh api repos/$REPO/collaborators/$ACTOR/permission \
+                --jq '.permission' 2>/dev/null || echo "none")
+              if [ "$PERMISSION" != "admin" ]; then
+                gh pr edit $PR_NUMBER --repo $REPO --remove-label "ready-to-merge"
+                gh pr comment $PR_NUMBER --repo $REPO \
+                  --body "Only the PR author (@$PR_AUTHOR) or a repository admin can add the \`ready-to-merge\` label."
+                echo "Unauthorized - label removed"
+                exit 1
+              fi
+            fi
+          fi
+
+          # Check if the label is present
+          HAS_LABEL=$(gh pr view $PR_NUMBER --repo $REPO --json labels \
+            --jq '[.labels[].name] | contains(["ready-to-merge"])')
+
+          if [ "$HAS_LABEL" = "true" ]; then
+            echo "PR $PR_NUMBER is approved for merge by its author"
+            exit 0
+          fi
+
+          echo "Waiting for @$PR_AUTHOR to add the 'ready-to-merge' label"
+          exit 1
