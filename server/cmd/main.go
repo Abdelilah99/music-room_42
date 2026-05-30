@@ -6,10 +6,25 @@ import (
 	"os"
 	"time"
 
+	"music-room/internal/handler"
+
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 )
+
+
+func DiagnosticMockAuth() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		uid := c.GetHeader("X-User-ID")
+		if uid == "" {
+			c.AbortWithStatusJSON(412, gin.H{"error": "Precondition Failed: Diagnostic testing requires an X-User-ID value"})
+			return
+		}
+		c.Set("authenticated_user_id", uid)
+		c.Next()
+	}
+}
 
 func main() {
 	if err := godotenv.Load(); err != nil {
@@ -59,6 +74,16 @@ func setupRouter(pool *pgxpool.Pool) *gin.Engine {
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "UP"})
 	})
+
+	profileHandler := handler.NewProfileHandler(pool)
+
+	api := r.Group("/api/v1")
+	api.Use(DiagnosticMockAuth())
+	{
+		api.GET("/users/me", profileHandler.GetMyProfile)
+		api.PATCH("/users/me", profileHandler.UpdateMyProfile)
+		api.GET("/users/:id", profileHandler.GetUserProfile)
+	}
 
 	return r
 }
