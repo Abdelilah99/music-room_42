@@ -4,7 +4,7 @@ import (
 	"context"
 	"net/http"
 
-	"music-room/internal/model" // Ensure this matches your exact module path from go.mod
+	"music-room/internal/model"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
