@@ -1,40 +1,35 @@
 package handler
 
 import (
-	"context"
 	"net/http"
 
 	"music-room/internal/model"
+	"music-room/internal/repository"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type ProfileHandler struct {
-	pool *pgxpool.Pool
+	repo repository.ProfileRepository
 }
 
-func NewProfileHandler(pool *pgxpool.Pool) *ProfileHandler {
-	return &ProfileHandler{pool: pool}
+func NewProfileHandler(repo repository.ProfileRepository) *ProfileHandler {
+	return &ProfileHandler{repo: repo}
 }
 
 // GET /api/v1/users/me
 func (h *ProfileHandler) GetMyProfile(c *gin.Context) {
+	// Switch out context.Background() for c.Request.Context() to support client cancellation
+	ctx := c.Request.Context()
 	myID := c.MustGet("authenticated_user_id").(string)
 
-	var p model.UserProfile
-	query := `SELECT id, email, public_info, friends_info, private_info, music_preferences 
-	          FROM users WHERE id = $1`
-
-	err := h.pool.QueryRow(context.Background(), query, myID).Scan(
-		&p.ID, &p.Email, &p.PublicInfo, &p.FriendsInfo, &p.PrivateInfo, &p.MusicPreferences,
-	)
+	p, err := h.repo.GetProfileByID(ctx, myID)
 	if err == pgx.ErrNoRows {
-		c.JSON(http.StatusNotFound, gin.H{"error": "User account not found"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "User profile not found"})
 		return
 	} else if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "An internal server error occurred"})
 		return
 	}
 
@@ -43,6 +38,7 @@ func (h *ProfileHandler) GetMyProfile(c *gin.Context) {
 
 // PATCH /api/v1/users/me
 func (h *ProfileHandler) UpdateMyProfile(c *gin.Context) {
+	ctx := c.Request.Context()
 	myID := c.MustGet("authenticated_user_id").(string)
 
 	var req model.UpdateProfileRequest
@@ -51,39 +47,17 @@ func (h *ProfileHandler) UpdateMyProfile(c *gin.Context) {
 		return
 	}
 
-	ctx := context.Background()
-
-	// Direct execution blocks ensuring zero updates to non-provided keys
-	if req.PublicInfo != nil {
-		if _, err := h.pool.Exec(ctx, "UPDATE users SET public_info = $1 WHERE id = $2", *req.PublicInfo, myID); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-	}
-	if req.FriendsInfo != nil {
-		if _, err := h.pool.Exec(ctx, "UPDATE users SET friends_info = $1 WHERE id = $2", *req.FriendsInfo, myID); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-	}
-	if req.PrivateInfo != nil {
-		if _, err := h.pool.Exec(ctx, "UPDATE users SET private_info = $1 WHERE id = $2", *req.PrivateInfo, myID); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-	}
-	if req.MusicPreferences != nil {
-		if _, err := h.pool.Exec(ctx, "UPDATE users SET music_preferences = $1 WHERE id = $2", *req.MusicPreferences, myID); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
+	if err := h.repo.UpdateProfile(ctx, myID, req); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "An internal server error occurred"})
+		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"status": "Profile structural blocks saved successfully"})
+	c.JSON(http.StatusOK, gin.H{"status": "Profile updated successfully"})
 }
 
 // GET /api/v1/users/:id
 func (h *ProfileHandler) GetUserProfile(c *gin.Context) {
+	ctx := c.Request.Context()
 	myID := c.MustGet("authenticated_user_id").(string)
 	targetID := c.Param("id")
 
@@ -92,28 +66,22 @@ func (h *ProfileHandler) GetUserProfile(c *gin.Context) {
 		return
 	}
 
-	// 1. Relational state query utilizing the friendships schema
-	var status string
-	relQuery := `SELECT status FROM friendships 
-	             WHERE (requester_id = $1 AND addressee_id = $2) 
-	                OR (requester_id = $2 AND addressee_id = $1)`
-	
-	err := h.pool.QueryRow(context.Background(), relQuery, myID, targetID).Scan(&status)
-	isFriend := (err == nil && status == "accepted")
+	status, err := h.repo.GetFriendshipStatus(ctx, myID, targetID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "An internal server error occurred"})
+		return
+	}
+	isFriend := (status == "accepted")
 
-	// 2. Resource profile lookup
-	var p model.UserProfile
-	query := `SELECT id, public_info, friends_info FROM users WHERE id = $1`
-	err = h.pool.QueryRow(context.Background(), query, targetID).Scan(&p.ID, &p.PublicInfo, &p.FriendsInfo)
+	p, err := h.repo.GetProfileByID(ctx, targetID)
 	if err == pgx.ErrNoRows {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Target user not found"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "Target user profile not found"})
 		return
 	} else if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "An internal server error occurred"})
 		return
 	}
 
-	// 3. Dynamic masking validation enforcement
 	payload := gin.H{
 		"id":          p.ID,
 		"public_info": p.PublicInfo,
