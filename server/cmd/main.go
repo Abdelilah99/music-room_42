@@ -8,24 +8,12 @@ import (
 
 	"music-room/internal/handler"
 	"music-room/internal/repository"
+	"music-room/internal/service"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 )
-
-
-func DiagnosticMockAuth() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		uid := c.GetHeader("X-User-ID")
-		if uid == "" {
-			c.AbortWithStatusJSON(412, gin.H{"error": "Precondition Failed: Diagnostic testing requires an X-User-ID value"})
-			return
-		}
-		c.Set("authenticated_user_id", uid)
-		c.Next()
-	}
-}
 
 func main() {
 	if err := godotenv.Load(); err != nil {
@@ -57,7 +45,19 @@ func main() {
 	}
 	log.Println("Database connection established")
 
-	r := setupRouter(pool)
+	authRepo := repository.NewAuthRepository(pool)
+	emailSvc := service.NewEmailService(
+		getEnvOrDefault("SMTP_HOST", "mailpit"),
+		getEnvOrDefault("SMTP_PORT", "1025"),
+		getEnvOrDefault("SMTP_FROM", "noreply@musicroom.local"),
+		os.Getenv("SMTP_USER"),
+		os.Getenv("SMTP_PASSWORD"),
+	)
+	authSvc := service.NewAuthService(authRepo, emailSvc, getEnvOrDefault("APP_URL", "http://localhost:8081"))
+	authHandler := handler.NewAuthHandler(authSvc)
+
+	// Injected the database pool parameter alongside their handler
+	r := setupRouter(pool, authHandler)
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -69,33 +69,53 @@ func main() {
 	}
 }
 
-func setupRouter(pool *pgxpool.Pool) *gin.Engine {
+func setupRouter(pool *pgxpool.Pool, authHandler *handler.AuthHandler) *gin.Engine {
 	r := gin.Default()
 
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "UP"})
 	})
 
+	// Inject Profile Layer Architecture Components
 	profileRepo := repository.NewProfileRepository(pool)
-	profileHandler := handler.NewProfileHandler(profileRepo)
+	profileSvc := service.NewProfileService(profileRepo)
+	profileHandler := handler.NewProfileHandler(profileSvc)
 
-	api := r.Group("/api/v1")
-	api.Use(func(c *gin.Context) {
-		// Temporary shim to let you run local testing until PR #60 merges completely.
-		// Replace this block with the real middleware.JWTAuth() invocation.
-		uid := c.GetHeader("X-User-ID")
-		if uid == "" {
-			c.AbortWithStatusJSON(401, gin.H{"error": "Unauthorized"})
-			return
-		}
-		c.Set("authenticated_user_id", uid)
-		c.Next()
-	})
+	v1 := r.Group("/api/v1")
 	{
-		api.GET("/users/me", profileHandler.GetMyProfile)
-		api.PATCH("/users/me", profileHandler.UpdateMyProfile)
-		api.GET("/users/:id", profileHandler.GetUserProfile)
+		auth := v1.Group("/auth")
+		{
+			auth.POST("/register", authHandler.Register)
+			auth.GET("/verify-email", authHandler.VerifyEmail)
+			auth.POST("/resend-verification", authHandler.ResendVerification)
+			auth.POST("/forgot-password", authHandler.ForgotPassword)
+			auth.POST("/reset-password", authHandler.ResetPassword)
+		}
+
+		// Profile endpoints mounted under /api/v1/users with standard inline mock auth
+		users := v1.Group("/users")
+		users.Use(func(c *gin.Context) {
+			uid := c.GetHeader("X-User-ID")
+			if uid == "" {
+				c.AbortWithStatusJSON(401, gin.H{"error": "Unauthorized"})
+				return
+			}
+			c.Set("authenticated_user_id", uid)
+			c.Next()
+		})
+		{
+			users.GET("/me", profileHandler.GetMyProfile)
+			users.PATCH("/me", profileHandler.UpdateMyProfile)
+			users.GET("/:id", profileHandler.GetUserProfile)
+		}
 	}
 
 	return r
+}
+
+func getEnvOrDefault(key, defaultVal string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return defaultVal
 }
