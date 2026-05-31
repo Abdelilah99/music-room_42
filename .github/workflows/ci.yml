@@ -7,6 +7,31 @@ on:
     branches: [main, features]
 
 jobs:
+  flutter:
+    name: Flutter Analyze & Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.44.x"
+          channel: stable
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Create .env file
+        run: touch .env
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Test
+        run: flutter test
+
   build-and-test:
     name: Build, Test & Lint
     runs-on: ubuntu-latest
