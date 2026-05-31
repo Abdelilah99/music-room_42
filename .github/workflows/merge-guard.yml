@@ -3,7 +3,7 @@ name: Merge Guard
 on:
   pull_request:
     types: [opened, synchronize, reopened, labeled, unlabeled]
-    branches: [main, features]
+    branches: [main, dev]
 
 jobs:
   author-ready:
