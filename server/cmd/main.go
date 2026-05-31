@@ -64,11 +64,17 @@ func main() {
 	jwtService := auth.NewJWTService()
 	jwtHandler := auth.NewHandler(userRepo, tokenRepo, jwtService)
 
+	// Profile repositories and services
 	profileRepo := repository.NewProfileRepository(pool)
 	profileSvc := service.NewProfileService(profileRepo)
 	profileHandler := handler.NewProfileHandler(profileSvc)
 
-	r := setupRouter(authHandler, jwtHandler, jwtService, profileHandler)
+	// Friend repositories and services
+	friendRepo := repository.NewFriendRepository(pool)
+	friendSvc := service.NewFriendService(friendRepo)
+	friendHandler := handler.NewFriendHandler(friendSvc)
+
+	r := setupRouter(authHandler, jwtHandler, jwtService, profileHandler, friendHandler)
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -80,30 +86,37 @@ func main() {
 	}
 }
 
-func setupRouter(authHandler *handler.AuthHandler, jwtHandler *auth.Handler, jwtService *auth.JWTService, profileHandler *handler.ProfileHandler) *gin.Engine {
+func setupRouter(
+	authHandler *handler.AuthHandler,
+	jwtHandler *auth.Handler,
+	jwtService *auth.JWTService,
+	profileHandler *handler.ProfileHandler,
+	friendHandler *handler.FriendHandler,
+) *gin.Engine {
 	r := gin.Default()
 
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "UP"})
 	})
 
+	jwtMiddleware := auth.NewMiddleware(jwtService)
+
 	v1 := r.Group("/api/v1")
 	{
-		// Registration and email verification
-		auth := v1.Group("/auth")
+		// Registration and email verification (public)
+		authGroup := v1.Group("/auth")
 		{
-			auth.POST("/register", authHandler.Register)
-			auth.GET("/verify-email", authHandler.VerifyEmail)
-			auth.POST("/resend-verification", authHandler.ResendVerification)
-			auth.POST("/forgot-password", authHandler.ForgotPassword)
-			auth.POST("/reset-password", authHandler.ResetPassword)
-			// JWT login/refresh/logout
-			auth.POST("/login", jwtHandler.Login)
-			auth.POST("/refresh", jwtHandler.Refresh)
-			auth.POST("/logout", jwtHandler.Logout)
+			authGroup.POST("/register", authHandler.Register)
+			authGroup.GET("/verify-email", authHandler.VerifyEmail)
+			authGroup.POST("/resend-verification", authHandler.ResendVerification)
+			authGroup.POST("/forgot-password", authHandler.ForgotPassword)
+			authGroup.POST("/reset-password", authHandler.ResetPassword)
+			authGroup.POST("/login", jwtHandler.Login)
+			authGroup.POST("/refresh", jwtHandler.Refresh)
+			authGroup.POST("/logout", jwtHandler.Logout)
 		}
 
-		// Profile endpoints - mock auth until JWT middleware is wired in
+		// Profile endpoints - mock auth until JWT middleware is fully wired in
 		users := v1.Group("/users")
 		users.Use(func(c *gin.Context) {
 			uid := c.GetHeader("X-User-ID")
@@ -118,6 +131,18 @@ func setupRouter(authHandler *handler.AuthHandler, jwtHandler *auth.Handler, jwt
 			users.GET("/me", profileHandler.GetMyProfile)
 			users.PATCH("/me", profileHandler.UpdateMyProfile)
 			users.GET("/:id", profileHandler.GetUserProfile)
+		}
+
+		// Friend endpoints (JWT protected)
+		friends := v1.Group("/friends")
+		friends.Use(jwtMiddleware.Authenticate())
+		{
+			friends.POST("/request", friendHandler.SendRequest)
+			friends.POST("/accept/:id", friendHandler.AcceptRequest)
+			friends.DELETE("/reject/:id", friendHandler.RejectRequest)
+			friends.DELETE("/:id", friendHandler.Unfriend)
+			friends.GET("", friendHandler.ListFriends)
+			friends.GET("/requests", friendHandler.ListRequests)
 		}
 	}
 
