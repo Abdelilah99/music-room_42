@@ -6,12 +6,14 @@ import (
 	"os"
 	"time"
 
-	"github.com/gin-gonic/gin"
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/joho/godotenv"
+	"music-room/internal/auth"
 	"music-room/internal/handler"
 	"music-room/internal/repository"
 	"music-room/internal/service"
+
+	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/joho/godotenv"
 )
 
 func main() {
@@ -44,6 +46,7 @@ func main() {
 	}
 	log.Println("Database connection established")
 
+	// Registration repositories and services
 	authRepo := repository.NewAuthRepository(pool)
 	emailSvc := service.NewEmailService(
 		getEnvOrDefault("SMTP_HOST", "mailpit"),
@@ -55,7 +58,13 @@ func main() {
 	authSvc := service.NewAuthService(authRepo, emailSvc, getEnvOrDefault("APP_URL", "http://localhost:8081"))
 	authHandler := handler.NewAuthHandler(authSvc)
 
-	r := setupRouter(authHandler)
+	// JWT repositories and services
+	userRepo := repository.NewPostgresUserRepository(pool)
+	tokenRepo := repository.NewPostgresRefreshTokenRepository(pool)
+	jwtService := auth.NewJWTService()
+	jwtHandler := auth.NewHandler(userRepo, tokenRepo, jwtService)
+
+	r := setupRouter(authHandler, jwtHandler, jwtService)
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -67,15 +76,17 @@ func main() {
 	}
 }
 
-func setupRouter(authHandler *handler.AuthHandler) *gin.Engine {
+func setupRouter(authHandler *handler.AuthHandler, jwtHandler *auth.Handler, jwtService *auth.JWTService) *gin.Engine {
 	r := gin.Default()
 
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "UP"})
 	})
 
+	// Versioned API routes
 	v1 := r.Group("/api/v1")
 	{
+		// Registration and email verification
 		auth := v1.Group("/auth")
 		{
 			auth.POST("/register", authHandler.Register)
@@ -83,6 +94,10 @@ func setupRouter(authHandler *handler.AuthHandler) *gin.Engine {
 			auth.POST("/resend-verification", authHandler.ResendVerification)
 			auth.POST("/forgot-password", authHandler.ForgotPassword)
 			auth.POST("/reset-password", authHandler.ResetPassword)
+			// JWT login/refresh/logout
+			auth.POST("/login", jwtHandler.Login)
+			auth.POST("/refresh", jwtHandler.Refresh)
+			auth.POST("/logout", jwtHandler.Logout)
 		}
 	}
 
