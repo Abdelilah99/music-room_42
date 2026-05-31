@@ -65,22 +65,22 @@ func (r *profileRepository) UpdateProfile(ctx context.Context, id string, req mo
 	argPos := 1
 
 	if req.PublicInfo != nil {
-		setClauses = append(setClauses, fmt.Sprintf("public_info = $%d", argPos))
+		setClauses = append(setClauses, fmt.Sprintf("public_info = public_info || $%d", argPos))
 		args = append(args, *req.PublicInfo)
 		argPos++
 	}
 	if req.FriendsInfo != nil {
-		setClauses = append(setClauses, fmt.Sprintf("friends_info = $%d", argPos))
+		setClauses = append(setClauses, fmt.Sprintf("friends_info = friends_info || $%d", argPos))
 		args = append(args, *req.FriendsInfo)
 		argPos++
 	}
 	if req.PrivateInfo != nil {
-		setClauses = append(setClauses, fmt.Sprintf("private_info = $%d", argPos))
+		setClauses = append(setClauses, fmt.Sprintf("private_info = private_info || $%d", argPos))
 		args = append(args, *req.PrivateInfo)
 		argPos++
 	}
 	if req.MusicPreferences != nil {
-		setClauses = append(setClauses, fmt.Sprintf("music_preferences = $%d", argPos))
+		setClauses = append(setClauses, fmt.Sprintf("music_preferences = music_preferences || $%d", argPos))
 		args = append(args, *req.MusicPreferences)
 		argPos++
 	}
