@@ -2,10 +2,10 @@ package auth
 
 import (
 	"context"
-	"net/http"
-	"time"
 	"music-room/internal/model"
 	"music-room/internal/repository"
+	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"

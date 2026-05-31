@@ -5,9 +5,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"music-room/internal/model"
 	"os"
 	"time"
-	"music-room/internal/model"
 
 	"github.com/golang-jwt/jwt/v5"
 )
