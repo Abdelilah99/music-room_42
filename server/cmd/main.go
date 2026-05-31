@@ -65,7 +65,8 @@ func main() {
 	jwtHandler := auth.NewHandler(userRepo, tokenRepo, jwtService)
 
 	profileRepo := repository.NewProfileRepository(pool)
-	profileHandler := handler.NewProfileHandler(profileRepo)
+	profileSvc := service.NewProfileService(profileRepo)
+	profileHandler := handler.NewProfileHandler(profileSvc)
 
 	r := setupRouter(authHandler, jwtHandler, jwtService, profileHandler)
 
