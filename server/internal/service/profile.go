@@ -7,6 +7,7 @@ import (
 	"music-room/internal/repository"
 )
 
+
 type ProfileService interface {
 	GetMyProfile(ctx context.Context, myID string) (*model.UserProfile, error)
 	UpdateMyProfile(ctx context.Context, myID string, req model.UpdateProfileRequest) error
