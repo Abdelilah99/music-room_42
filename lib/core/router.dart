@@ -4,6 +4,7 @@ import 'package:music_room/features/track_vote/track_vote_screen.dart';
 import 'package:music_room/features/delegation/delegation_screen.dart';
 import 'package:music_room/features/playlist_editor/playlist_editor_screen.dart';
 import 'package:music_room/features/profile/profile_screen.dart';
+import 'package:music_room/features/profile/user_profile_screen.dart';
 
 final router = GoRouter(
   initialLocation: '/vote',
@@ -14,7 +15,18 @@ final router = GoRouter(
         GoRoute(path: '/vote', builder: (context, _) => const TrackVoteScreen()),
         GoRoute(path: '/delegation', builder: (context, _) => const DelegationScreen()),
         GoRoute(path: '/playlist', builder: (context, _) => const PlaylistEditorScreen()),
-        GoRoute(path: '/profile', builder: (context, _) => const ProfileScreen()),
+        GoRoute(
+          path: '/profile',
+          builder: (context, _) => const ProfileScreen(),
+          routes: [
+            GoRoute(
+              path: 'users/:id',
+              builder: (context, state) => UserProfileScreen(
+                userId: state.pathParameters['id']!,
+              ),
+            ),
+          ],
+        ),
       ],
     ),
   ],
