@@ -20,7 +20,7 @@ func NewProfileHandler(svc service.ProfileService) *ProfileHandler {
 
 func (h *ProfileHandler) GetMyProfile(c *gin.Context) {
 	ctx := c.Request.Context() // Support cancellation via client context
-	myID := c.MustGet("authenticated_user_id").(string)
+	myID := c.MustGet("user_id").(string)
 
 	p, err := h.svc.GetMyProfile(ctx, myID)
 	if err == pgx.ErrNoRows {
@@ -36,7 +36,7 @@ func (h *ProfileHandler) GetMyProfile(c *gin.Context) {
 
 func (h *ProfileHandler) UpdateMyProfile(c *gin.Context) {
 	ctx := c.Request.Context()
-	myID := c.MustGet("authenticated_user_id").(string)
+	myID := c.MustGet("user_id").(string)
 
 	var req model.UpdateProfileRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -54,7 +54,7 @@ func (h *ProfileHandler) UpdateMyProfile(c *gin.Context) {
 
 func (h *ProfileHandler) GetUserProfile(c *gin.Context) {
 	ctx := c.Request.Context()
-	myID := c.MustGet("authenticated_user_id").(string)
+	myID := c.MustGet("user_id").(string)
 	targetID := c.Param("id")
 
 	if myID == targetID {
