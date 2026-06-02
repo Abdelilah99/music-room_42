@@ -39,7 +39,7 @@ func (m *Middleware) Authenticate() gin.HandlerFunc {
 			return
 		}
 
-		c.Set("authenticated_user_id", claims.UserID)
+		c.Set("user_id", claims.UserID)
 		c.Set("email", claims.Email)
 		c.Set("subscription_tier", claims.SubscriptionTier)
 		c.Next()
@@ -48,7 +48,7 @@ func (m *Middleware) Authenticate() gin.HandlerFunc {
 
 func RequireOwnership(paramName string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		ctxUserID, exists := c.Get("authenticated_user_id")
+		ctxUserID, exists := c.Get("user_id")
 		if !exists {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 			c.Abort()
