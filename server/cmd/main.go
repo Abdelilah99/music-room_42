@@ -74,11 +74,15 @@ func main() {
 	friendSvc := service.NewFriendService(friendRepo)
 	friendHandler := handler.NewFriendHandler(friendSvc)
 
+	// Music search service and handler
+	musicSvc := service.NewMusicService()
+	musicHandler := handler.NewMusicHandler(musicSvc)
+
 	// Google OAuth
 	oauthRepo := repository.NewOAuthRepository(pool)
 	googleHandler := auth.NewGoogleHandler(oauthRepo, userRepo, tokenRepo, jwtService)
 
-	r := setupRouter(authHandler, jwtHandler, jwtService, profileHandler, friendHandler, googleHandler)
+	r := setupRouter(authHandler, jwtHandler, jwtService, profileHandler, friendHandler, musicHandler, googleHandler)
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -96,6 +100,7 @@ func setupRouter(
 	jwtService *auth.JWTService,
 	profileHandler *handler.ProfileHandler,
 	friendHandler *handler.FriendHandler,
+	musicHandler *handler.MusicHandler,
 	googleHandler *auth.GoogleHandler,
 ) *gin.Engine {
 	r := gin.Default()
@@ -148,6 +153,13 @@ func setupRouter(
 			friends.DELETE("/:id", friendHandler.Unfriend)
 			friends.GET("", friendHandler.ListFriends)
 			friends.GET("/requests", friendHandler.ListRequests)
+		}
+
+		// Music endpoints (JWT protected)
+		music := v1.Group("/music")
+		music.Use(jwtMiddleware.Authenticate())
+		{
+			music.GET("/search", musicHandler.Search)
 		}
 	}
 
