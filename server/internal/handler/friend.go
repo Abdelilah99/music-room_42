@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 
+	"music-room/internal/middleware"
 	"music-room/internal/model"
 	"music-room/internal/service"
 
@@ -40,18 +41,13 @@ func (h *FriendHandler) SendRequest(c *gin.Context) {
 	}
 
 	var body struct {
-		AddresseeID string `json:"addressee_id" binding:"required"`
+		AddresseeID string `json:"addressee_id" binding:"required,uuid"`
 	}
-	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "addressee_id is required"})
+	if !middleware.BindAndValidate(c, &body) {
 		return
 	}
 
-	addresseeID, err := uuid.Parse(body.AddresseeID)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid addressee_id"})
-		return
-	}
+	addresseeID, _ := uuid.Parse(body.AddresseeID)
 
 	f, err := h.svc.SendRequest(c.Request.Context(), callerID, addresseeID)
 	if err != nil {

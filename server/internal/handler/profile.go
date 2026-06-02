@@ -3,6 +3,7 @@ package handler
 import (
 	"net/http"
 
+	"music-room/internal/middleware"
 	"music-room/internal/model"
 	"music-room/internal/service"
 
@@ -39,8 +40,7 @@ func (h *ProfileHandler) UpdateMyProfile(c *gin.Context) {
 	myID := c.MustGet("user_id").(string)
 
 	var req model.UpdateProfileRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request payload format"})
+	if !middleware.BindAndValidate(c, &req) {
 		return
 	}
 
