@@ -68,7 +68,8 @@ func main() {
 	profileSvc := service.NewProfileService(profileRepo)
 	profileHandler := handler.NewProfileHandler(profileSvc)
 
-	r := setupRouter(authHandler, jwtHandler, jwtService, profileHandler)
+	jwtMiddleware := auth.NewMiddleware(jwtService)
+	r := setupRouter(authHandler, jwtHandler, jwtMiddleware, profileHandler)
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -80,7 +81,7 @@ func main() {
 	}
 }
 
-func setupRouter(authHandler *handler.AuthHandler, jwtHandler *auth.Handler, jwtService *auth.JWTService, profileHandler *handler.ProfileHandler) *gin.Engine {
+func setupRouter(authHandler *handler.AuthHandler, jwtHandler *auth.Handler, jwtMiddleware *auth.Middleware, profileHandler *handler.ProfileHandler) *gin.Engine {
 	r := gin.Default()
 
 	r.GET("/health", func(c *gin.Context) {
@@ -103,17 +104,8 @@ func setupRouter(authHandler *handler.AuthHandler, jwtHandler *auth.Handler, jwt
 			auth.POST("/logout", jwtHandler.Logout)
 		}
 
-		// Profile endpoints - mock auth until JWT middleware is wired in
 		users := v1.Group("/users")
-		users.Use(func(c *gin.Context) {
-			uid := c.GetHeader("X-User-ID")
-			if uid == "" {
-				c.AbortWithStatusJSON(401, gin.H{"error": "Unauthorized"})
-				return
-			}
-			c.Set("authenticated_user_id", uid)
-			c.Next()
-		})
+		users.Use(jwtMiddleware.Authenticate())
 		{
 			users.GET("/me", profileHandler.GetMyProfile)
 			users.PATCH("/me", profileHandler.UpdateMyProfile)
