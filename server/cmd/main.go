@@ -75,6 +75,10 @@ func main() {
 	friendSvc := service.NewFriendService(friendRepo)
 	friendHandler := handler.NewFriendHandler(friendSvc)
 
+	// Music search service and handler
+	musicSvc := service.NewMusicService()
+	musicHandler := handler.NewMusicHandler(musicSvc)
+
 	// Google OAuth
 	oauthRepo := repository.NewOAuthRepository(pool)
 	googleHandler := auth.NewGoogleHandler(oauthRepo, userRepo, tokenRepo, jwtService)
@@ -82,7 +86,7 @@ func main() {
 	// WebSocket hub manager (shared across all real-time services)
 	hubManager := hub.NewHubManager()
 
-	r := setupRouter(authHandler, jwtHandler, jwtService, profileHandler, friendHandler, googleHandler, hubManager)
+	r := setupRouter(authHandler, jwtHandler, jwtService, profileHandler, friendHandler, musicHandler, googleHandler, hubManager)
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -100,6 +104,7 @@ func setupRouter(
 	jwtService *auth.JWTService,
 	profileHandler *handler.ProfileHandler,
 	friendHandler *handler.FriendHandler,
+	musicHandler *handler.MusicHandler,
 	googleHandler *auth.GoogleHandler,
 	hubManager *hub.HubManager,
 ) *gin.Engine {
@@ -153,6 +158,13 @@ func setupRouter(
 			friends.DELETE("/:id", friendHandler.Unfriend)
 			friends.GET("", friendHandler.ListFriends)
 			friends.GET("/requests", friendHandler.ListRequests)
+		}
+
+		// Music endpoints (JWT protected)
+		music := v1.Group("/music")
+		music.Use(jwtMiddleware.Authenticate())
+		{
+			music.GET("/search", musicHandler.Search)
 		}
 
 		// WebSocket endpoint (JWT protected).
