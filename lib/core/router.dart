@@ -9,6 +9,7 @@ import 'package:music_room/features/auth/verify_notice_screen.dart';
 import 'package:music_room/features/delegation/delegation_screen.dart';
 import 'package:music_room/features/playlist_editor/playlist_editor_screen.dart';
 import 'package:music_room/features/profile/profile_screen.dart';
+import 'package:music_room/features/profile/user_profile_screen.dart';
 import 'package:music_room/features/track_vote/track_vote_screen.dart';
 
 // ── Router provider ──────────────────────────────────────────────────────────
@@ -60,6 +61,14 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/profile',
             builder: (_, _) => const ProfileScreen(),
+            routes: [
+              GoRoute(
+                path: 'users/:id',
+                builder: (_, state) => UserProfileScreen(
+                  userId: state.pathParameters['id']!,
+                ),
+              ),
+            ],
           ),
         ],
       ),

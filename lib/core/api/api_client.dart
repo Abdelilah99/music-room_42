@@ -73,8 +73,11 @@ class _AuthInterceptor extends Interceptor {
       final res = await _dio.post(
         '/api/v1/auth/refresh',
         data: {'refresh_token': refreshToken},
-        // Mark so onError does not try to refresh the refresh request itself.
-        options: Options(extra: {'_retry': true}),
+        options: Options(
+          // Mark so onError does not try to refresh the refresh request itself.
+          extra: {'_retry': true},
+          receiveTimeout: const Duration(seconds: 10),
+        ),
       );
 
       final newAccess = res.data['access_token'] as String;
@@ -105,7 +108,11 @@ class ApiClient {
     required TokenStorage tokenStorage,
     required Future<void> Function() onAuthExpired,
   }) {
-    dio = Dio(BaseOptions(baseUrl: baseUrl));
+    dio = Dio(BaseOptions(
+      baseUrl: baseUrl,
+      connectTimeout: const Duration(seconds: 10),
+      receiveTimeout: const Duration(seconds: 10),
+    ));
     dio.interceptors.add(_AuthInterceptor(
       storage: tokenStorage,
       dio: dio,

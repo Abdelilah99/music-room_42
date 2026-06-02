@@ -124,15 +124,7 @@ func setupRouter(
 
 		// Profile endpoints - mock auth until JWT middleware is fully wired in
 		users := v1.Group("/users")
-		users.Use(func(c *gin.Context) {
-			uid := c.GetHeader("X-User-ID")
-			if uid == "" {
-				c.AbortWithStatusJSON(401, gin.H{"error": "Unauthorized"})
-				return
-			}
-			c.Set("authenticated_user_id", uid)
-			c.Next()
-		})
+		users.Use(jwtMiddleware.Authenticate())
 		{
 			users.GET("/me", profileHandler.GetMyProfile)
 			users.PATCH("/me", profileHandler.UpdateMyProfile)
