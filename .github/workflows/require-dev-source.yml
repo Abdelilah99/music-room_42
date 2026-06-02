@@ -1,0 +1,17 @@
+name: Require dev source
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  check-source-branch:
+    name: check-source-branch
+    runs-on: ubuntu-latest
+    steps:
+      - name: Block PRs not coming from dev
+        run: |
+          if [ "${{ github.head_ref }}" != "dev" ]; then
+            echo "PRs to main must come from the dev branch. Got: ${{ github.head_ref }}"
+            exit 1
+          fi
