@@ -69,6 +69,7 @@ func main() {
 	profileSvc := service.NewProfileService(profileRepo)
 	profileHandler := handler.NewProfileHandler(profileSvc)
 
+	// Friend repositories and services
 	friendRepo := repository.NewFriendRepository(pool)
 	friendSvc := service.NewFriendService(friendRepo)
 	friendHandler := handler.NewFriendHandler(friendSvc)
@@ -103,6 +104,8 @@ func setupRouter(
 		c.JSON(200, gin.H{"status": "UP"})
 	})
 
+	jwtMiddleware := auth.NewMiddleware(jwtService)
+
 	v1 := r.Group("/api/v1")
 	{
 		// Registration and email verification (public)
@@ -119,6 +122,7 @@ func setupRouter(
 			authGroup.POST("/google", googleHandler.SignIn)
 		}
 
+		// Profile endpoints - mock auth until JWT middleware is fully wired in
 		users := v1.Group("/users")
 		users.Use(jwtMiddleware.Authenticate())
 		{
