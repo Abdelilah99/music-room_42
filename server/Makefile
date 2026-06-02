@@ -1,4 +1,4 @@
-.PHONY: install run build test docker-up docker-down deps
+.PHONY: install run build test migrate migrate-down docker-up docker-down deps
 
 install:
 	go mod download
@@ -11,6 +11,12 @@ build:
 
 test:
 	go test ./...
+
+migrate:
+	go run ./cmd/migrate/main.go up
+
+migrate-down:
+	go run ./cmd/migrate/main.go down
 
 docker-up:
 	docker compose up --build

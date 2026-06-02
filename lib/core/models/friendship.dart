@@ -7,10 +7,18 @@ class Friend {
 
   const Friend({required this.friendshipId, required this.user});
 
-  factory Friend.fromJson(Map<String, dynamic> json) => Friend(
-        friendshipId: json['id'] as String,
-        user: User.fromJson(json['user'] as Map<String, dynamic>),
-      );
+  // Parses a server FriendEntry: {friendship_id, user_id, email, public_info}
+  factory Friend.fromEntry(Map<String, dynamic> json) {
+    final pub = json['public_info'] as Map<String, dynamic>?;
+    return Friend(
+      friendshipId: json['friendship_id'] as String,
+      user: User(
+        id: json['user_id'] as String,
+        email: json['email'] as String,
+        name: pub?['display_name'] as String?,
+      ),
+    );
+  }
 }
 
 // A pending friend request (incoming or outgoing).
@@ -20,10 +28,18 @@ class FriendRequest {
 
   const FriendRequest({required this.id, required this.user});
 
-  factory FriendRequest.fromJson(Map<String, dynamic> json) => FriendRequest(
-        id: json['id'] as String,
-        user: User.fromJson(json['user'] as Map<String, dynamic>),
-      );
+  // Parses a server FriendEntry: {friendship_id, user_id, email, public_info}
+  factory FriendRequest.fromEntry(Map<String, dynamic> json) {
+    final pub = json['public_info'] as Map<String, dynamic>?;
+    return FriendRequest(
+      id: json['friendship_id'] as String,
+      user: User(
+        id: json['user_id'] as String,
+        email: json['email'] as String,
+        name: pub?['display_name'] as String?,
+      ),
+    );
+  }
 }
 
 class FriendsData {
@@ -36,18 +52,6 @@ class FriendsData {
     this.incoming = const [],
     this.outgoing = const [],
   });
-
-  factory FriendsData.fromJson(Map<String, dynamic> json) => FriendsData(
-        accepted: (json['accepted'] as List<dynamic>? ?? [])
-            .map((e) => Friend.fromJson(e as Map<String, dynamic>))
-            .toList(),
-        incoming: (json['incoming'] as List<dynamic>? ?? [])
-            .map((e) => FriendRequest.fromJson(e as Map<String, dynamic>))
-            .toList(),
-        outgoing: (json['outgoing'] as List<dynamic>? ?? [])
-            .map((e) => FriendRequest.fromJson(e as Map<String, dynamic>))
-            .toList(),
-      );
 
   FriendsData copyWith({
     List<Friend>? accepted,
