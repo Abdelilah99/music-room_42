@@ -73,8 +73,11 @@ func main() {
 	friendSvc := service.NewFriendService(friendRepo)
 	friendHandler := handler.NewFriendHandler(friendSvc)
 
-	jwtMiddleware := auth.NewMiddleware(jwtService)
-	r := setupRouter(authHandler, jwtHandler, jwtMiddleware, profileHandler, friendHandler)
+	// Google OAuth
+	oauthRepo := repository.NewOAuthRepository(pool)
+	googleHandler := auth.NewGoogleHandler(oauthRepo, userRepo, tokenRepo, jwtService)
+
+	r := setupRouter(authHandler, jwtHandler, jwtService, profileHandler, friendHandler, googleHandler)
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -86,7 +89,14 @@ func main() {
 	}
 }
 
-func setupRouter(authHandler *handler.AuthHandler, jwtHandler *auth.Handler, jwtMiddleware *auth.Middleware, profileHandler *handler.ProfileHandler, friendHandler *handler.FriendHandler) *gin.Engine {
+func setupRouter(
+	authHandler *handler.AuthHandler,
+	jwtHandler *auth.Handler,
+	jwtService *auth.JWTService,
+	profileHandler *handler.ProfileHandler,
+	friendHandler *handler.FriendHandler,
+	googleHandler *auth.GoogleHandler,
+) *gin.Engine {
 	r := gin.Default()
 
 	r.GET("/health", func(c *gin.Context) {
@@ -106,6 +116,7 @@ func setupRouter(authHandler *handler.AuthHandler, jwtHandler *auth.Handler, jwt
 			authGroup.POST("/login", jwtHandler.Login)
 			authGroup.POST("/refresh", jwtHandler.Refresh)
 			authGroup.POST("/logout", jwtHandler.Logout)
+			authGroup.POST("/google", googleHandler.SignIn)
 		}
 
 		users := v1.Group("/users")
@@ -114,6 +125,13 @@ func setupRouter(authHandler *handler.AuthHandler, jwtHandler *auth.Handler, jwt
 			users.GET("/me", profileHandler.GetMyProfile)
 			users.PATCH("/me", profileHandler.UpdateMyProfile)
 			users.GET("/:id", profileHandler.GetUserProfile)
+		}
+
+		// Account linking (JWT protected)
+		link := v1.Group("/auth/link")
+		link.Use(jwtMiddleware.Authenticate())
+		{
+			link.POST("/google", googleHandler.LinkGoogle)
 		}
 
 		// Friend endpoints (JWT protected)
