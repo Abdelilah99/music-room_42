@@ -69,8 +69,12 @@ func main() {
 	profileSvc := service.NewProfileService(profileRepo)
 	profileHandler := handler.NewProfileHandler(profileSvc)
 
+	friendRepo := repository.NewFriendRepository(pool)
+	friendSvc := service.NewFriendService(friendRepo)
+	friendHandler := handler.NewFriendHandler(friendSvc)
+
 	jwtMiddleware := auth.NewMiddleware(jwtService)
-	r := setupRouter(authHandler, jwtHandler, jwtMiddleware, profileHandler)
+	r := setupRouter(authHandler, jwtHandler, jwtMiddleware, profileHandler, friendHandler)
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -82,14 +86,12 @@ func main() {
 	}
 }
 
-func setupRouter(authHandler *handler.AuthHandler, jwtHandler *auth.Handler, jwtMiddleware *auth.Middleware, profileHandler *handler.ProfileHandler) *gin.Engine {
+func setupRouter(authHandler *handler.AuthHandler, jwtHandler *auth.Handler, jwtMiddleware *auth.Middleware, profileHandler *handler.ProfileHandler, friendHandler *handler.FriendHandler) *gin.Engine {
 	r := gin.Default()
 
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "UP"})
 	})
-
-	jwtMiddleware := auth.NewMiddleware(jwtService)
 
 	v1 := r.Group("/api/v1")
 	{
