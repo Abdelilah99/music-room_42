@@ -74,7 +74,11 @@ func main() {
 	friendSvc := service.NewFriendService(friendRepo)
 	friendHandler := handler.NewFriendHandler(friendSvc)
 
-	r := setupRouter(authHandler, jwtHandler, jwtService, profileHandler, friendHandler)
+	// Music search service and handler
+	musicSvc := service.NewMusicService()
+	musicHandler := handler.NewMusicHandler(musicSvc)
+
+	r := setupRouter(authHandler, jwtHandler, jwtService, profileHandler, friendHandler, musicHandler)
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -92,6 +96,7 @@ func setupRouter(
 	jwtService *auth.JWTService,
 	profileHandler *handler.ProfileHandler,
 	friendHandler *handler.FriendHandler,
+	musicHandler *handler.MusicHandler,
 ) *gin.Engine {
 	r := gin.Default()
 
@@ -143,6 +148,13 @@ func setupRouter(
 			friends.DELETE("/:id", friendHandler.Unfriend)
 			friends.GET("", friendHandler.ListFriends)
 			friends.GET("/requests", friendHandler.ListRequests)
+		}
+
+		// Music endpoints (JWT protected)
+		music := v1.Group("/music")
+		music.Use(jwtMiddleware.Authenticate())
+		{
+			music.GET("/search", musicHandler.Search)
 		}
 	}
 
