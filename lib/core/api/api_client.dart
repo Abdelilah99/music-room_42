@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:dio/dio.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:music_room/core/services/token_storage.dart';
@@ -10,7 +9,7 @@ import 'package:music_room/features/auth/auth_provider.dart';
 class _AuthInterceptor extends Interceptor {
   final TokenStorage _storage;
   final Dio _dio;
-  final VoidCallback _onAuthExpired;
+  final Future<void> Function() _onAuthExpired;
 
   // Serialises concurrent 401 responses: only one refresh attempt runs at a
   // time; other failing requests wait on the same Completer.
@@ -90,7 +89,7 @@ class _AuthInterceptor extends Interceptor {
     } catch (_) {
       completer.complete(null);
       await _storage.clearTokens();
-      _onAuthExpired();
+      await _onAuthExpired();
       handler.next(err);
     } finally {
       _pendingRefresh = null;
@@ -104,7 +103,7 @@ class ApiClient {
   ApiClient._({
     required String baseUrl,
     required TokenStorage tokenStorage,
-    required VoidCallback onAuthExpired,
+    required Future<void> Function() onAuthExpired,
   }) {
     dio = Dio(BaseOptions(baseUrl: baseUrl));
     dio.interceptors.add(_AuthInterceptor(
