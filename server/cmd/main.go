@@ -8,6 +8,7 @@ import (
 
 	"music-room/internal/auth"
 	"music-room/internal/handler"
+	"music-room/internal/middleware"
 	"music-room/internal/repository"
 	"music-room/internal/service"
 
@@ -82,7 +83,9 @@ func main() {
 	oauthRepo := repository.NewOAuthRepository(pool)
 	googleHandler := auth.NewGoogleHandler(oauthRepo, userRepo, tokenRepo, jwtService)
 
-	r := setupRouter(authHandler, jwtHandler, jwtService, profileHandler, friendHandler, musicHandler, googleHandler)
+	allowedOrigins := os.Getenv("ALLOWED_ORIGINS")
+
+	r := setupRouter(authHandler, jwtHandler, jwtService, profileHandler, friendHandler, musicHandler, googleHandler, allowedOrigins)
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -102,8 +105,11 @@ func setupRouter(
 	friendHandler *handler.FriendHandler,
 	musicHandler *handler.MusicHandler,
 	googleHandler *auth.GoogleHandler,
+	allowedOrigins string,
 ) *gin.Engine {
 	r := gin.Default()
+
+	r.Use(middleware.NewCORS(allowedOrigins))
 
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "UP"})
