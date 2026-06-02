@@ -34,13 +34,17 @@ class AuthNotifier extends AsyncNotifier<AuthStatus> {
         await ref.read(authApiProvider).logout(refreshToken: rt);
       }
     } catch (_) {}
-    await storage.clearTokens();
+    try {
+      await storage.clearTokens();
+    } catch (_) {}
     state = const AsyncData(AuthStatus.unauthenticated);
   }
 
   // Called by the auth interceptor when a token refresh attempt fails.
-  void forceUnauthenticated() {
-    ref.read(tokenStorageProvider).clearTokens();
+  Future<void> forceUnauthenticated() async {
+    try {
+      await ref.read(tokenStorageProvider).clearTokens();
+    } catch (_) {}
     state = const AsyncData(AuthStatus.unauthenticated);
   }
 }

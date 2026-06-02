@@ -33,7 +33,9 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: '/verify-notice',
-        builder: (_, _) => const VerifyNoticeScreen(),
+        builder: (_, state) => VerifyNoticeScreen(
+          email: state.uri.queryParameters['email'],
+        ),
       ),
       GoRoute(
         path: '/forgot-password',

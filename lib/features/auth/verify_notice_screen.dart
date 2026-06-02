@@ -5,16 +5,24 @@ import 'package:go_router/go_router.dart';
 import 'package:music_room/core/api/auth_api.dart';
 
 class VerifyNoticeScreen extends ConsumerStatefulWidget {
-  const VerifyNoticeScreen({super.key});
+  const VerifyNoticeScreen({super.key, this.email});
+
+  final String? email;
 
   @override
   ConsumerState<VerifyNoticeScreen> createState() => _VerifyNoticeScreenState();
 }
 
 class _VerifyNoticeScreenState extends ConsumerState<VerifyNoticeScreen> {
-  final _emailCtrl = TextEditingController();
+  late final TextEditingController _emailCtrl;
   bool _resending = false;
   String? _resendMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    _emailCtrl = TextEditingController(text: widget.email ?? '');
+  }
 
   @override
   void dispose() {

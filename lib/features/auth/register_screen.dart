@@ -38,7 +38,11 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
             email: _emailCtrl.text.trim(),
             password: _passwordCtrl.text,
           );
-      if (mounted) context.go('/verify-notice');
+      if (mounted) {
+        context.go(
+          '/verify-notice?email=${Uri.encodeQueryComponent(_emailCtrl.text.trim())}',
+        );
+      }
     } on DioException catch (e) {
       final data = e.response?.data;
       String msg = 'Registration failed. Please try again.';
