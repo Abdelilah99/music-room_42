@@ -105,7 +105,13 @@ func (s *friendService) Unfriend(ctx context.Context, friendshipID, callerID uui
 	if f.RequesterID != callerID && f.AddresseeID != callerID {
 		return ErrNotParticipantOp
 	}
-	if f.Status != "accepted" {
+
+	// Allow the requester to cancel a pending request they sent, or either
+	// participant to remove an accepted friendship.
+	if f.Status == "pending" && f.RequesterID != callerID {
+		return ErrNotParticipantOp
+	}
+	if f.Status != "pending" && f.Status != "accepted" {
 		return ErrRequestNotAccepted
 	}
 
