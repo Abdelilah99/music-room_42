@@ -64,6 +64,7 @@ func main() {
 	jwtService := auth.NewJWTService()
 	jwtHandler := auth.NewHandler(userRepo, tokenRepo, jwtService)
 
+	// Profile repositories and services
 	profileRepo := repository.NewProfileRepository(pool)
 	profileSvc := service.NewProfileService(profileRepo)
 	profileHandler := handler.NewProfileHandler(profileSvc)
@@ -88,20 +89,21 @@ func setupRouter(authHandler *handler.AuthHandler, jwtHandler *auth.Handler, jwt
 		c.JSON(200, gin.H{"status": "UP"})
 	})
 
+	jwtMiddleware := auth.NewMiddleware(jwtService)
+
 	v1 := r.Group("/api/v1")
 	{
-		// Registration and email verification
-		auth := v1.Group("/auth")
+		// Registration and email verification (public)
+		authGroup := v1.Group("/auth")
 		{
-			auth.POST("/register", authHandler.Register)
-			auth.GET("/verify-email", authHandler.VerifyEmail)
-			auth.POST("/resend-verification", authHandler.ResendVerification)
-			auth.POST("/forgot-password", authHandler.ForgotPassword)
-			auth.POST("/reset-password", authHandler.ResetPassword)
-			// JWT login/refresh/logout
-			auth.POST("/login", jwtHandler.Login)
-			auth.POST("/refresh", jwtHandler.Refresh)
-			auth.POST("/logout", jwtHandler.Logout)
+			authGroup.POST("/register", authHandler.Register)
+			authGroup.GET("/verify-email", authHandler.VerifyEmail)
+			authGroup.POST("/resend-verification", authHandler.ResendVerification)
+			authGroup.POST("/forgot-password", authHandler.ForgotPassword)
+			authGroup.POST("/reset-password", authHandler.ResetPassword)
+			authGroup.POST("/login", jwtHandler.Login)
+			authGroup.POST("/refresh", jwtHandler.Refresh)
+			authGroup.POST("/logout", jwtHandler.Logout)
 		}
 
 		users := v1.Group("/users")
@@ -110,6 +112,18 @@ func setupRouter(authHandler *handler.AuthHandler, jwtHandler *auth.Handler, jwt
 			users.GET("/me", profileHandler.GetMyProfile)
 			users.PATCH("/me", profileHandler.UpdateMyProfile)
 			users.GET("/:id", profileHandler.GetUserProfile)
+		}
+
+		// Friend endpoints (JWT protected)
+		friends := v1.Group("/friends")
+		friends.Use(jwtMiddleware.Authenticate())
+		{
+			friends.POST("/request", friendHandler.SendRequest)
+			friends.POST("/accept/:id", friendHandler.AcceptRequest)
+			friends.DELETE("/reject/:id", friendHandler.RejectRequest)
+			friends.DELETE("/:id", friendHandler.Unfriend)
+			friends.GET("", friendHandler.ListFriends)
+			friends.GET("/requests", friendHandler.ListRequests)
 		}
 	}
 
