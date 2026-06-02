@@ -8,6 +8,7 @@ import (
 
 	"music-room/internal/auth"
 	"music-room/internal/handler"
+	"music-room/internal/hub"
 	"music-room/internal/repository"
 	"music-room/internal/service"
 
@@ -78,7 +79,10 @@ func main() {
 	oauthRepo := repository.NewOAuthRepository(pool)
 	googleHandler := auth.NewGoogleHandler(oauthRepo, userRepo, tokenRepo, jwtService)
 
-	r := setupRouter(authHandler, jwtHandler, jwtService, profileHandler, friendHandler, googleHandler)
+	// WebSocket hub manager (shared across all real-time services)
+	hubManager := hub.NewHubManager()
+
+	r := setupRouter(authHandler, jwtHandler, jwtService, profileHandler, friendHandler, googleHandler, hubManager)
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -97,6 +101,7 @@ func setupRouter(
 	profileHandler *handler.ProfileHandler,
 	friendHandler *handler.FriendHandler,
 	googleHandler *auth.GoogleHandler,
+	hubManager *hub.HubManager,
 ) *gin.Engine {
 	r := gin.Default()
 
@@ -148,6 +153,17 @@ func setupRouter(
 			friends.DELETE("/:id", friendHandler.Unfriend)
 			friends.GET("", friendHandler.ListFriends)
 			friends.GET("/requests", friendHandler.ListRequests)
+		}
+
+		// WebSocket endpoint (JWT protected).
+		// :entityID is a generic room key reused by Track Vote, Control
+		// Delegation, and Playlist Editor — they each pass their own ID.
+		ws := v1.Group("/ws")
+		ws.Use(jwtMiddleware.Authenticate())
+		{
+			ws.GET("/:entityID", func(c *gin.Context) {
+				hub.ServeWS(hubManager, c.Param("entityID"), c)
+			})
 		}
 	}
 
