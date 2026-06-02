@@ -74,7 +74,11 @@ func main() {
 	friendSvc := service.NewFriendService(friendRepo)
 	friendHandler := handler.NewFriendHandler(friendSvc)
 
-	r := setupRouter(authHandler, jwtHandler, jwtService, profileHandler, friendHandler)
+	// Google OAuth
+	oauthRepo := repository.NewOAuthRepository(pool)
+	googleHandler := auth.NewGoogleHandler(oauthRepo, userRepo, tokenRepo, jwtService)
+
+	r := setupRouter(authHandler, jwtHandler, jwtService, profileHandler, friendHandler, googleHandler)
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -92,6 +96,7 @@ func setupRouter(
 	jwtService *auth.JWTService,
 	profileHandler *handler.ProfileHandler,
 	friendHandler *handler.FriendHandler,
+	googleHandler *auth.GoogleHandler,
 ) *gin.Engine {
 	r := gin.Default()
 
@@ -114,6 +119,7 @@ func setupRouter(
 			authGroup.POST("/login", jwtHandler.Login)
 			authGroup.POST("/refresh", jwtHandler.Refresh)
 			authGroup.POST("/logout", jwtHandler.Logout)
+			authGroup.POST("/google", googleHandler.SignIn)
 		}
 
 		// Profile endpoints - mock auth until JWT middleware is fully wired in
@@ -131,6 +137,13 @@ func setupRouter(
 			users.GET("/me", profileHandler.GetMyProfile)
 			users.PATCH("/me", profileHandler.UpdateMyProfile)
 			users.GET("/:id", profileHandler.GetUserProfile)
+		}
+
+		// Account linking (JWT protected)
+		link := v1.Group("/auth/link")
+		link.Use(jwtMiddleware.Authenticate())
+		{
+			link.POST("/google", googleHandler.LinkGoogle)
 		}
 
 		// Friend endpoints (JWT protected)
