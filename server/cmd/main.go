@@ -23,6 +23,8 @@ func main() {
 		log.Println("No .env file found, reading from environment")
 	}
 
+	middleware.RegisterJSONTagNames()
+
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
 		log.Fatal("DATABASE_URL environment variable is required")
@@ -88,8 +90,10 @@ func main() {
 	hubManager := hub.NewHubManager()
 
 	allowedOrigins := os.Getenv("ALLOWED_ORIGINS")
+	globalLimit := getEnvOrDefault("RATE_LIMIT_GLOBAL", "100-M")
+	authLimit := getEnvOrDefault("RATE_LIMIT_AUTH", "10-M")
 
-	r := setupRouter(authHandler, jwtHandler, jwtService, profileHandler, friendHandler, musicHandler, googleHandler, hubManager, allowedOrigins)
+	r := setupRouter(authHandler, jwtHandler, jwtService, profileHandler, friendHandler, musicHandler, googleHandler, hubManager, allowedOrigins, globalLimit, authLimit)
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -111,10 +115,13 @@ func setupRouter(
 	googleHandler *auth.GoogleHandler,
 	hubManager *hub.HubManager,
 	allowedOrigins string,
+	globalLimitRate string,
+	authLimitRate string,
 ) *gin.Engine {
 	r := gin.Default()
 
 	r.Use(middleware.NewCORS(allowedOrigins))
+	r.Use(middleware.NewRateLimiter(globalLimitRate))
 
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "UP"})
@@ -124,8 +131,9 @@ func setupRouter(
 
 	v1 := r.Group("/api/v1")
 	{
-		// Registration and email verification (public)
+		// Registration and email verification (public, stricter rate limit)
 		authGroup := v1.Group("/auth")
+		authGroup.Use(middleware.NewRateLimiter(authLimitRate))
 		{
 			authGroup.POST("/register", authHandler.Register)
 			authGroup.GET("/verify-email", authHandler.VerifyEmail)

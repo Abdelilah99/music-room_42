@@ -9,6 +9,7 @@ import (
 	"os"
 	"time"
 
+	"music-room/internal/middleware"
 	"music-room/internal/model"
 	"music-room/internal/repository"
 
@@ -99,8 +100,7 @@ func (h *GoogleHandler) SignIn(c *gin.Context) {
 	var body struct {
 		IDToken string `json:"id_token" binding:"required"`
 	}
-	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "id_token is required"})
+	if !middleware.BindAndValidate(c, &body) {
 		return
 	}
 
@@ -177,8 +177,7 @@ func (h *GoogleHandler) LinkGoogle(c *gin.Context) {
 	var body struct {
 		IDToken string `json:"id_token" binding:"required"`
 	}
-	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "id_token is required"})
+	if !middleware.BindAndValidate(c, &body) {
 		return
 	}
 
