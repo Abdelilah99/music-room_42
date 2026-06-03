@@ -11,6 +11,16 @@ class AuthNotifier extends AsyncNotifier<AuthStatus> {
     return has ? AuthStatus.authenticated : AuthStatus.unauthenticated;
   }
 
+  Future<void> googleSignIn({required String idToken}) async {
+    final result =
+        await ref.read(authApiProvider).googleSignIn(idToken: idToken);
+    await ref.read(tokenStorageProvider).saveTokens(
+          access: result.accessToken,
+          refresh: result.refreshToken,
+        );
+    state = const AsyncData(AuthStatus.authenticated);
+  }
+
   Future<void> login({
     required String email,
     required String password,
