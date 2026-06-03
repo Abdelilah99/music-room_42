@@ -133,6 +133,7 @@ func setupRouter(
 		{
 			users.GET("/me", profileHandler.GetMyProfile)
 			users.PATCH("/me", profileHandler.UpdateMyProfile)
+			users.GET("/search", profileHandler.SearchUsers)
 			users.GET("/:id", profileHandler.GetUserProfile)
 		}
 
@@ -153,6 +154,7 @@ func setupRouter(
 			friends.DELETE("/:id", friendHandler.Unfriend)
 			friends.GET("", friendHandler.ListFriends)
 			friends.GET("/requests", friendHandler.ListRequests)
+			friends.GET("/outgoing", friendHandler.ListOutgoing)
 		}
 
 		// Music endpoints (JWT protected)

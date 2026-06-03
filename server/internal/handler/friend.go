@@ -170,6 +170,25 @@ func (h *FriendHandler) ListRequests(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"requests": requests})
 }
 
+func (h *FriendHandler) ListOutgoing(c *gin.Context) {
+	callerID, ok := h.callerID(c)
+	if !ok {
+		return
+	}
+
+	requests, err := h.svc.ListOutgoingRequests(c.Request.Context(), callerID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "An internal server error occurred"})
+		return
+	}
+
+	if requests == nil {
+		requests = []model.FriendEntry{}
+	}
+
+	c.JSON(http.StatusOK, gin.H{"requests": requests})
+}
+
 func (h *FriendHandler) handleServiceError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, service.ErrFriendshipNotFound):
