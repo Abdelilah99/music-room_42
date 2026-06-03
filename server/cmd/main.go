@@ -89,10 +89,11 @@ func main() {
 	// WebSocket hub manager (shared across all real-time services)
 	hubManager := hub.NewHubManager()
 
+	allowedOrigins := os.Getenv("ALLOWED_ORIGINS")
 	globalLimit := getEnvOrDefault("RATE_LIMIT_GLOBAL", "100-M")
 	authLimit := getEnvOrDefault("RATE_LIMIT_AUTH", "10-M")
 
-	r := setupRouter(authHandler, jwtHandler, jwtService, profileHandler, friendHandler, musicHandler, googleHandler, hubManager, globalLimit, authLimit)
+	r := setupRouter(authHandler, jwtHandler, jwtService, profileHandler, friendHandler, musicHandler, googleHandler, hubManager, allowedOrigins, globalLimit, authLimit)
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -113,11 +114,13 @@ func setupRouter(
 	musicHandler *handler.MusicHandler,
 	googleHandler *auth.GoogleHandler,
 	hubManager *hub.HubManager,
+	allowedOrigins string,
 	globalLimitRate string,
 	authLimitRate string,
 ) *gin.Engine {
 	r := gin.Default()
 
+	r.Use(middleware.NewCORS(allowedOrigins))
 	r.Use(middleware.NewRateLimiter(globalLimitRate))
 
 	r.GET("/health", func(c *gin.Context) {
