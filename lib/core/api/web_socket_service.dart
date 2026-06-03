@@ -106,7 +106,6 @@ class WebSocketService {
       return;
     }
     final delay = Duration(seconds: math.pow(2, _attempt - 1).toInt());
-    debugPrint('[WS:$_path] retry $_attempt/$_maxAttempts in ${delay.inSeconds}s');
     _onStateChange(WsConnectionState.connecting);
     _retryTimer = Timer(delay, _openSocket);
   }
