@@ -9,6 +9,7 @@ import (
 	"music-room/internal/auth"
 	"music-room/internal/handler"
 	"music-room/internal/hub"
+	"music-room/internal/middleware"
 	"music-room/internal/repository"
 	"music-room/internal/service"
 
@@ -21,6 +22,8 @@ func main() {
 	if err := godotenv.Load(); err != nil {
 		log.Println("No .env file found, reading from environment")
 	}
+
+	middleware.RegisterJSONTagNames()
 
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
@@ -86,7 +89,10 @@ func main() {
 	// WebSocket hub manager (shared across all real-time services)
 	hubManager := hub.NewHubManager()
 
-	r := setupRouter(authHandler, jwtHandler, jwtService, profileHandler, friendHandler, musicHandler, googleHandler, hubManager)
+	globalLimit := getEnvOrDefault("RATE_LIMIT_GLOBAL", "100-M")
+	authLimit := getEnvOrDefault("RATE_LIMIT_AUTH", "10-M")
+
+	r := setupRouter(authHandler, jwtHandler, jwtService, profileHandler, friendHandler, musicHandler, googleHandler, hubManager, globalLimit, authLimit)
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -107,8 +113,12 @@ func setupRouter(
 	musicHandler *handler.MusicHandler,
 	googleHandler *auth.GoogleHandler,
 	hubManager *hub.HubManager,
+	globalLimitRate string,
+	authLimitRate string,
 ) *gin.Engine {
 	r := gin.Default()
+
+	r.Use(middleware.NewRateLimiter(globalLimitRate))
 
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "UP"})
@@ -118,8 +128,9 @@ func setupRouter(
 
 	v1 := r.Group("/api/v1")
 	{
-		// Registration and email verification (public)
+		// Registration and email verification (public, stricter rate limit)
 		authGroup := v1.Group("/auth")
+		authGroup.Use(middleware.NewRateLimiter(authLimitRate))
 		{
 			authGroup.POST("/register", authHandler.Register)
 			authGroup.GET("/verify-email", authHandler.VerifyEmail)
@@ -132,7 +143,7 @@ func setupRouter(
 			authGroup.POST("/google", googleHandler.SignIn)
 		}
 
-		// Profile endpoints - mock auth until JWT middleware is fully wired in
+		// Profile endpoints (JWT protected)
 		users := v1.Group("/users")
 		users.Use(jwtMiddleware.Authenticate())
 		{
