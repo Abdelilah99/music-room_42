@@ -23,7 +23,7 @@ class AuthNotifier extends AsyncNotifier<AuthStatus> {
 
   Future<void> login({
     required String email,
-    required String password,
+    required String  password,
   }) async {
     final result = await ref.read(authApiProvider).login(
           email: email,
