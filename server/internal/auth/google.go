@@ -70,6 +70,10 @@ func verifyGoogleIDToken(ctx context.Context, idToken string) (*googleClaims, er
 
 type tokenVerifierFunc func(ctx context.Context, idToken string) (*googleClaims, error)
 
+type googleSignInRequest struct {
+	IDToken string `json:"id_token" binding:"required"`
+}
+
 type GoogleHandler struct {
 	oauthRepo repository.OAuthRepository
 	userRepo  repository.UserRepository
@@ -93,9 +97,17 @@ func NewGoogleHandler(
 	}
 }
 
-// SignIn handles POST /api/v1/auth/google
-// Receives an ID token from the mobile Google Sign-In SDK, verifies it,
-// then upserts the user and returns a JWT pair.
+// SignIn godoc
+// @Summary      Sign in or register with Google
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Param        body body googleSignInRequest true "Google ID token"
+// @Success      200 {object} tokenResponse
+// @Failure      400 {object} errorResponse
+// @Failure      401 {object} errorResponse "Invalid Google ID token"
+// @Failure      500 {object} errorResponse
+// @Router       /auth/google [post]
 func (h *GoogleHandler) SignIn(c *gin.Context) {
 	var body struct {
 		IDToken string `json:"id_token" binding:"required"`
@@ -164,8 +176,19 @@ func (h *GoogleHandler) SignIn(c *gin.Context) {
 	})
 }
 
-// LinkGoogle handles POST /api/v1/auth/link/google (JWT protected)
-// Links a Google account to an already authenticated user.
+// LinkGoogle godoc
+// @Summary      Link a Google account to the authenticated user
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Param        body body googleSignInRequest true "Google ID token"
+// @Success      200 {object} messageResponse
+// @Failure      400 {object} errorResponse
+// @Failure      401 {object} errorResponse
+// @Failure      409 {object} errorResponse "Google account already linked"
+// @Failure      500 {object} errorResponse
+// @Router       /auth/link/google [post]
 func (h *GoogleHandler) LinkGoogle(c *gin.Context) {
 	callerIDStr, _ := c.Get("user_id")
 	callerID, err := uuid.Parse(callerIDStr.(string))
