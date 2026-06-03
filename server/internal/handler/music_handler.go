@@ -19,7 +19,17 @@ func NewMusicHandler(musicSvc service.MusicService) *MusicHandler {
 	}
 }
 
-// Search endpoint routes to Deezer and Normalizes response
+// Search godoc
+// @Summary      Search tracks via Deezer
+// @Tags         music
+// @Produce      json
+// @Security     BearerAuth
+// @Param        q query string true "Search query"
+// @Success      200 {array}  music-room_internal_model.TrackDTO
+// @Failure      400 {object} ErrorResponse "Missing query"
+// @Failure      401 {object} ErrorResponse
+// @Failure      502 {object} ErrorResponse "Deezer unreachable"
+// @Router       /music/search [get]
 func (h *MusicHandler) Search(c *gin.Context) {
 	query := strings.TrimSpace(c.Query("q"))
 	if query == "" {

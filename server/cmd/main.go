@@ -1,3 +1,13 @@
+// @title        Music Room API
+// @version      1.0
+// @description  REST API for the Music Room collaborative listening application.
+// @host         localhost:8081
+// @BasePath     /api/v1
+// @securityDefinitions.apikey BearerAuth
+// @in           header
+// @name         Authorization
+// @description  Enter your Bearer token: "Bearer <token>"
+
 package main
 
 import (
@@ -6,6 +16,7 @@ import (
 	"os"
 	"time"
 
+	_ "music-room/docs"
 	"music-room/internal/auth"
 	"music-room/internal/handler"
 	"music-room/internal/hub"
@@ -16,6 +27,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
+	swaggerFiles "github.com/swaggo/files"
+	ginSwagger "github.com/swaggo/gin-swagger"
 )
 
 func main() {
@@ -126,6 +139,8 @@ func setupRouter(
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "UP"})
 	})
+
+	r.GET("/api/v1/docs/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
 	jwtMiddleware := auth.NewMiddleware(jwtService)
 

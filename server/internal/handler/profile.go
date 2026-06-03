@@ -20,6 +20,16 @@ func NewProfileHandler(svc service.ProfileService) *ProfileHandler {
 	return &ProfileHandler{svc: svc}
 }
 
+// GetMyProfile godoc
+// @Summary      Get the authenticated user's profile
+// @Tags         users
+// @Produce      json
+// @Security     BearerAuth
+// @Success      200 {object} model.UserProfile
+// @Failure      401 {object} ErrorResponse
+// @Failure      404 {object} ErrorResponse
+// @Failure      500 {object} ErrorResponse
+// @Router       /users/me [get]
 func (h *ProfileHandler) GetMyProfile(c *gin.Context) {
 	ctx := c.Request.Context() // Support cancellation via client context
 	myID := c.MustGet("user_id").(string)
@@ -36,6 +46,18 @@ func (h *ProfileHandler) GetMyProfile(c *gin.Context) {
 	c.JSON(http.StatusOK, p)
 }
 
+// UpdateMyProfile godoc
+// @Summary      Update the authenticated user's profile
+// @Tags         users
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Param        body body model.UpdateProfileRequest true "Fields to update (all optional)"
+// @Success      200 {object} MessageResponse
+// @Failure      400 {object} ErrorResponse
+// @Failure      401 {object} ErrorResponse
+// @Failure      500 {object} ErrorResponse
+// @Router       /users/me [patch]
 func (h *ProfileHandler) UpdateMyProfile(c *gin.Context) {
 	ctx := c.Request.Context()
 	myID := c.MustGet("user_id").(string)
@@ -53,6 +75,16 @@ func (h *ProfileHandler) UpdateMyProfile(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "Profile updated successfully"})
 }
 
+// SearchUsers godoc
+// @Summary      Search users by name or email
+// @Tags         users
+// @Produce      json
+// @Security     BearerAuth
+// @Param        q query string true "Search query"
+// @Success      200 {object} map[string][]model.UserSearchResult
+// @Failure      401 {object} ErrorResponse
+// @Failure      500 {object} ErrorResponse
+// @Router       /users/search [get]
 func (h *ProfileHandler) SearchUsers(c *gin.Context) {
 	q := strings.TrimSpace(c.Query("q"))
 	if q == "" {
@@ -73,6 +105,17 @@ func (h *ProfileHandler) SearchUsers(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"users": results})
 }
 
+// GetUserProfile godoc
+// @Summary      Get another user's profile
+// @Tags         users
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id path string true "Target user UUID"
+// @Success      200 {object} model.UserProfile
+// @Failure      401 {object} ErrorResponse
+// @Failure      404 {object} ErrorResponse
+// @Failure      500 {object} ErrorResponse
+// @Router       /users/{id} [get]
 func (h *ProfileHandler) GetUserProfile(c *gin.Context) {
 	ctx := c.Request.Context()
 	myID := c.MustGet("user_id").(string)
