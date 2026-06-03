@@ -8,6 +8,7 @@ import (
 
 	"music-room/internal/auth"
 	"music-room/internal/handler"
+	"music-room/internal/hub"
 	"music-room/internal/middleware"
 	"music-room/internal/repository"
 	"music-room/internal/service"
@@ -83,9 +84,12 @@ func main() {
 	oauthRepo := repository.NewOAuthRepository(pool)
 	googleHandler := auth.NewGoogleHandler(oauthRepo, userRepo, tokenRepo, jwtService)
 
+	// WebSocket hub manager (shared across all real-time services)
+	hubManager := hub.NewHubManager()
+
 	allowedOrigins := os.Getenv("ALLOWED_ORIGINS")
 
-	r := setupRouter(authHandler, jwtHandler, jwtService, profileHandler, friendHandler, musicHandler, googleHandler, allowedOrigins)
+	r := setupRouter(authHandler, jwtHandler, jwtService, profileHandler, friendHandler, musicHandler, googleHandler, hubManager, allowedOrigins)
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -105,6 +109,7 @@ func setupRouter(
 	friendHandler *handler.FriendHandler,
 	musicHandler *handler.MusicHandler,
 	googleHandler *auth.GoogleHandler,
+	hubManager *hub.HubManager,
 	allowedOrigins string,
 ) *gin.Engine {
 	r := gin.Default()
@@ -133,12 +138,13 @@ func setupRouter(
 			authGroup.POST("/google", googleHandler.SignIn)
 		}
 
-		// Profile endpoints - mock auth until JWT middleware is fully wired in
+		// Profile endpoints (JWT protected)
 		users := v1.Group("/users")
 		users.Use(jwtMiddleware.Authenticate())
 		{
 			users.GET("/me", profileHandler.GetMyProfile)
 			users.PATCH("/me", profileHandler.UpdateMyProfile)
+			users.GET("/search", profileHandler.SearchUsers)
 			users.GET("/:id", profileHandler.GetUserProfile)
 		}
 
@@ -159,6 +165,7 @@ func setupRouter(
 			friends.DELETE("/:id", friendHandler.Unfriend)
 			friends.GET("", friendHandler.ListFriends)
 			friends.GET("/requests", friendHandler.ListRequests)
+			friends.GET("/outgoing", friendHandler.ListOutgoing)
 		}
 
 		// Music endpoints (JWT protected)
@@ -166,6 +173,17 @@ func setupRouter(
 		music.Use(jwtMiddleware.Authenticate())
 		{
 			music.GET("/search", musicHandler.Search)
+		}
+
+		// WebSocket endpoint (JWT protected).
+		// :entityID is a generic room key reused by Track Vote, Control
+		// Delegation, and Playlist Editor — they each pass their own ID.
+		ws := v1.Group("/ws")
+		ws.Use(jwtMiddleware.Authenticate())
+		{
+			ws.GET("/:entityID", func(c *gin.Context) {
+				hub.ServeWS(hubManager, c.Param("entityID"), c)
+			})
 		}
 	}
 
