@@ -34,6 +34,19 @@ func (h *FriendHandler) callerID(c *gin.Context) (uuid.UUID, bool) {
 	return id, true
 }
 
+// SendRequest godoc
+// @Summary      Send a friend request
+// @Tags         friends
+// @Accept       json
+// @Produce      json
+// @Security     BearerAuth
+// @Param        body body sendFriendRequestBody true "Target user UUID"
+// @Success      201 {object} FriendshipCreatedResponse
+// @Failure      400 {object} ErrorResponse "Cannot friend yourself"
+// @Failure      401 {object} ErrorResponse
+// @Failure      409 {object} ErrorResponse "Friendship already exists"
+// @Failure      500 {object} ErrorResponse
+// @Router       /friends/request [post]
 func (h *FriendHandler) SendRequest(c *gin.Context) {
 	callerID, ok := h.callerID(c)
 	if !ok {
@@ -68,6 +81,19 @@ func (h *FriendHandler) SendRequest(c *gin.Context) {
 	})
 }
 
+// AcceptRequest godoc
+// @Summary      Accept a friend request
+// @Tags         friends
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id path string true "Friendship UUID"
+// @Success      200 {object} MessageResponse
+// @Failure      400 {object} ErrorResponse "Invalid UUID"
+// @Failure      401 {object} ErrorResponse
+// @Failure      403 {object} ErrorResponse "Not the addressee"
+// @Failure      404 {object} ErrorResponse
+// @Failure      409 {object} ErrorResponse "Request not pending"
+// @Router       /friends/accept/{id} [post]
 func (h *FriendHandler) AcceptRequest(c *gin.Context) {
 	callerID, ok := h.callerID(c)
 	if !ok {
@@ -88,6 +114,18 @@ func (h *FriendHandler) AcceptRequest(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "friend request accepted"})
 }
 
+// RejectRequest godoc
+// @Summary      Reject or cancel a friend request
+// @Tags         friends
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id path string true "Friendship UUID"
+// @Success      200 {object} MessageResponse
+// @Failure      400 {object} ErrorResponse
+// @Failure      401 {object} ErrorResponse
+// @Failure      403 {object} ErrorResponse
+// @Failure      404 {object} ErrorResponse
+// @Router       /friends/reject/{id} [delete]
 func (h *FriendHandler) RejectRequest(c *gin.Context) {
 	callerID, ok := h.callerID(c)
 	if !ok {
@@ -108,6 +146,18 @@ func (h *FriendHandler) RejectRequest(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "friend request rejected"})
 }
 
+// Unfriend godoc
+// @Summary      Remove a friend
+// @Tags         friends
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id path string true "Friendship UUID"
+// @Success      200 {object} MessageResponse
+// @Failure      400 {object} ErrorResponse
+// @Failure      401 {object} ErrorResponse
+// @Failure      403 {object} ErrorResponse
+// @Failure      404 {object} ErrorResponse
+// @Router       /friends/{id} [delete]
 func (h *FriendHandler) Unfriend(c *gin.Context) {
 	callerID, ok := h.callerID(c)
 	if !ok {
@@ -128,6 +178,15 @@ func (h *FriendHandler) Unfriend(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "unfriended successfully"})
 }
 
+// ListFriends godoc
+// @Summary      List accepted friends
+// @Tags         friends
+// @Produce      json
+// @Security     BearerAuth
+// @Success      200 {object} map[string][]model.FriendEntry
+// @Failure      401 {object} ErrorResponse
+// @Failure      500 {object} ErrorResponse
+// @Router       /friends [get]
 func (h *FriendHandler) ListFriends(c *gin.Context) {
 	callerID, ok := h.callerID(c)
 	if !ok {
@@ -147,6 +206,15 @@ func (h *FriendHandler) ListFriends(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"friends": friends})
 }
 
+// ListRequests godoc
+// @Summary      List incoming friend requests
+// @Tags         friends
+// @Produce      json
+// @Security     BearerAuth
+// @Success      200 {object} map[string][]model.FriendEntry
+// @Failure      401 {object} ErrorResponse
+// @Failure      500 {object} ErrorResponse
+// @Router       /friends/requests [get]
 func (h *FriendHandler) ListRequests(c *gin.Context) {
 	callerID, ok := h.callerID(c)
 	if !ok {
@@ -166,6 +234,15 @@ func (h *FriendHandler) ListRequests(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"requests": requests})
 }
 
+// ListOutgoing godoc
+// @Summary      List outgoing (sent) friend requests
+// @Tags         friends
+// @Produce      json
+// @Security     BearerAuth
+// @Success      200 {object} map[string][]model.FriendEntry
+// @Failure      401 {object} ErrorResponse
+// @Failure      500 {object} ErrorResponse
+// @Router       /friends/outgoing [get]
 func (h *FriendHandler) ListOutgoing(c *gin.Context) {
 	callerID, ok := h.callerID(c)
 	if !ok {

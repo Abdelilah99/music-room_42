@@ -23,6 +23,17 @@ type RegisterRequest struct {
 	Password string `json:"password" binding:"required,min=8"`
 }
 
+// Register godoc
+// @Summary      Register a new user
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Param        body body RegisterRequest true "Email and password"
+// @Success      201 {object} MessageResponse
+// @Failure      400 {object} ErrorResponse
+// @Failure      409 {object} ErrorResponse "Email already in use"
+// @Failure      422 {object} ErrorResponse
+// @Router       /auth/register [post]
 func (h *AuthHandler) Register(c *gin.Context) {
 	var req RegisterRequest
 	if !middleware.BindAndValidate(c, &req) {
@@ -46,6 +57,15 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{"message": "registration successful, check your email to verify your account"})
 }
 
+// VerifyEmail godoc
+// @Summary      Verify email address
+// @Tags         auth
+// @Produce      json
+// @Param        token query string true "Verification token"
+// @Success      200 {object} MessageResponse
+// @Failure      400 {object} ErrorResponse "Invalid or expired token"
+// @Failure      500 {object} ErrorResponse
+// @Router       /auth/verify-email [get]
 func (h *AuthHandler) VerifyEmail(c *gin.Context) {
 	token := c.Query("token")
 	if token == "" {
@@ -70,6 +90,16 @@ type ResendVerificationRequest struct {
 	Email string `json:"email" binding:"required,email"`
 }
 
+// ResendVerification godoc
+// @Summary      Resend email verification link
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Param        body body ResendVerificationRequest true "Registered email"
+// @Success      200 {object} MessageResponse
+// @Failure      400 {object} ErrorResponse
+// @Failure      500 {object} ErrorResponse
+// @Router       /auth/resend-verification [post]
 func (h *AuthHandler) ResendVerification(c *gin.Context) {
 	var req ResendVerificationRequest
 	if !middleware.BindAndValidate(c, &req) {
@@ -93,6 +123,16 @@ type ForgotPasswordRequest struct {
 	Email string `json:"email" binding:"required,email"`
 }
 
+// ForgotPassword godoc
+// @Summary      Request a password reset link
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Param        body body ForgotPasswordRequest true "Registered email"
+// @Success      200 {object} MessageResponse
+// @Failure      400 {object} ErrorResponse
+// @Failure      500 {object} ErrorResponse
+// @Router       /auth/forgot-password [post]
 func (h *AuthHandler) ForgotPassword(c *gin.Context) {
 	var req ForgotPasswordRequest
 	if !middleware.BindAndValidate(c, &req) {
@@ -117,6 +157,17 @@ type ResetPasswordRequest struct {
 	Password string `json:"password" binding:"required,min=8"`
 }
 
+// ResetPassword godoc
+// @Summary      Reset password using a reset token
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Param        body body ResetPasswordRequest true "Reset token and new password"
+// @Success      200 {object} MessageResponse
+// @Failure      400 {object} ErrorResponse "Invalid/expired/used token"
+// @Failure      422 {object} ErrorResponse "Password too weak"
+// @Failure      500 {object} ErrorResponse
+// @Router       /auth/reset-password [post]
 func (h *AuthHandler) ResetPassword(c *gin.Context) {
 	var req ResetPasswordRequest
 	if !middleware.BindAndValidate(c, &req) {
