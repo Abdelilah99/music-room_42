@@ -15,6 +15,7 @@ type ProfileRepository interface {
 	GetProfileByID(ctx context.Context, id string) (*model.UserProfile, error)
 	UpdateProfile(ctx context.Context, id string, req model.UpdateProfileRequest) error
 	GetFriendshipStatus(ctx context.Context, userID, targetID string) (string, error)
+	SearchUsers(ctx context.Context, query string) ([]model.UserSearchResult, error)
 }
 
 type profileRepository struct {
@@ -50,6 +51,33 @@ func (r *profileRepository) GetFriendshipStatus(ctx context.Context, userID, tar
 		return "", nil // No relationship record exists
 	}
 	return status, err
+}
+
+func (r *profileRepository) SearchUsers(ctx context.Context, query string) ([]model.UserSearchResult, error) {
+	pattern := "%" + query + "%"
+	sql := `
+		SELECT id::text, email, COALESCE(public_info->>'display_name', '') AS name
+		FROM users
+		WHERE is_verified = true
+		  AND (email ILIKE $1 OR public_info->>'display_name' ILIKE $1)
+		ORDER BY email
+		LIMIT 20`
+
+	rows, err := r.pool.Query(ctx, sql, pattern)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []model.UserSearchResult
+	for rows.Next() {
+		var u model.UserSearchResult
+		if err := rows.Scan(&u.ID, &u.Email, &u.Name); err != nil {
+			return nil, err
+		}
+		results = append(results, u)
+	}
+	return results, rows.Err()
 }
 
 func (r *profileRepository) UpdateProfile(ctx context.Context, id string, req model.UpdateProfileRequest) error {
