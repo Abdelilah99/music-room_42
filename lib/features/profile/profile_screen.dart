@@ -1,7 +1,11 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:music_room/core/api/profile_api.dart';
 import 'package:music_room/core/models/user_profile.dart';
+import 'package:music_room/features/auth/google_sign_in_service.dart';
 import 'package:music_room/features/profile/profile_provider.dart';
 
 class ProfileScreen extends ConsumerWidget {
@@ -60,6 +64,8 @@ class ProfileScreen extends ConsumerWidget {
                 onTap: () => context.push('/profile/friends'),
               ),
             ),
+            const SizedBox(height: 12),
+            const _GoogleLinkCard(),
             const SizedBox(height: 12),
             _SectionCard(
               title: 'Public Info',
@@ -429,5 +435,85 @@ class _SectionCardState extends State<_SectionCard> {
         ),
       );
     });
+  }
+}
+
+class _GoogleLinkCard extends ConsumerStatefulWidget {
+  const _GoogleLinkCard();
+
+  @override
+  ConsumerState<_GoogleLinkCard> createState() => _GoogleLinkCardState();
+}
+
+class _GoogleLinkCardState extends ConsumerState<_GoogleLinkCard> {
+  bool _loading = false;
+
+  Future<void> _linkGoogle() async {
+    setState(() => _loading = true);
+    try {
+      // getFreshIdToken signs out first to guarantee a non-cached token.
+      final idToken =
+          await ref.read(googleSignInServiceProvider).getFreshIdToken();
+      if (idToken == null) {
+        // User cancelled the Google sign-in sheet.
+        return;
+      }
+      await ref.read(profileApiProvider).linkGoogle(idToken: idToken);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Google account linked successfully.')),
+        );
+      }
+    } on PlatformException {
+      if (mounted) {
+        _showError('Sign in failed. Please try again.');
+      }
+    } on DioException catch (e) {
+      if (mounted) {
+        final body = e.response?.data;
+        final serverMsg = body is Map ? body['error'] as String? : null;
+        if (e.response?.statusCode == 409) {
+          _showError(serverMsg ?? 'This Google account is already linked.');
+        } else if (e.response?.statusCode == 401) {
+          _showError('Verification failed. Please try again.');
+        } else {
+          _showError('Something went wrong. Please try again.');
+        }
+      }
+    } catch (_) {
+      if (mounted) {
+        _showError('Something went wrong. Please try again.');
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  void _showError(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Theme.of(context).colorScheme.error,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: ListTile(
+        leading: const Icon(Icons.link_outlined),
+        title: const Text('Connect Google Account'),
+        subtitle: const Text('Link your Google account for quick sign-in'),
+        trailing: _loading
+            ? const SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : const Icon(Icons.chevron_right),
+        onTap: _loading ? null : _linkGoogle,
+      ),
+    );
   }
 }

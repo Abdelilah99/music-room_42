@@ -32,6 +32,12 @@ class ProfileApi {
     final response = await _client.dio.get('/api/v1/users/$userId');
     return UserProfile.fromJson(response.data as Map<String, dynamic>);
   }
+
+  Future<void> linkGoogle({required String idToken}) async {
+    await _client.dio.post('/api/v1/auth/link/google', data: {
+      'id_token': idToken,
+    });
+  }
 }
 
 final profileApiProvider = Provider<ProfileApi>(

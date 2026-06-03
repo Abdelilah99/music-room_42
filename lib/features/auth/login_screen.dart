@@ -1,8 +1,10 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:music_room/features/auth/auth_provider.dart';
+import 'package:music_room/features/auth/google_sign_in_service.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
@@ -17,6 +19,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _passwordCtrl = TextEditingController();
 
   bool _loading = false;
+  bool _googleLoading = false;
   bool _obscure = true;
   String? _error;
 
@@ -25,6 +28,36 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     _emailCtrl.dispose();
     _passwordCtrl.dispose();
     super.dispose();
+  }
+
+  Future<void> _signInWithGoogle() async {
+    setState(() {
+      _googleLoading = true;
+      _error = null;
+    });
+    try {
+      final idToken =
+          await ref.read(googleSignInServiceProvider).getIdToken();
+      if (idToken == null) {
+        // User cancelled — return to login without any error.
+        return;
+      }
+      await ref.read(authProvider.notifier).googleSignIn(idToken: idToken);
+    } on PlatformException catch (e) {
+      if (mounted) setState(() => _error = 'Sign in failed (${e.code}): ${e.message}');
+    } on DioException catch (e) {
+      if (mounted) {
+        setState(() {
+          _error = e.response?.statusCode == 401
+              ? 'Google authentication failed. Please try again.'
+              : 'Something went wrong. Please try again.';
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _error = 'Something went wrong. Please try again.');
+    } finally {
+      if (mounted) setState(() => _googleLoading = false);
+    }
   }
 
   Future<void> _submit() async {
@@ -154,7 +187,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     ],
                     const SizedBox(height: 16),
                     FilledButton(
-                      onPressed: _loading ? null : _submit,
+                      onPressed: (_loading || _googleLoading) ? null : _submit,
                       child: _loading
                           ? const SizedBox(
                               height: 20,
@@ -163,6 +196,36 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                   CircularProgressIndicator(strokeWidth: 2),
                             )
                           : const Text('Log in'),
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        const Expanded(child: Divider()),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          child: Text(
+                            'or',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.outline,
+                            ),
+                          ),
+                        ),
+                        const Expanded(child: Divider()),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    OutlinedButton.icon(
+                      onPressed: (_loading || _googleLoading)
+                          ? null
+                          : _signInWithGoogle,
+                      icon: _googleLoading
+                          ? const SizedBox(
+                              height: 18,
+                              width: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const _GoogleLogo(),
+                      label: const Text('Continue with Google'),
                     ),
                     const SizedBox(height: 16),
                     Row(
@@ -180,6 +243,32 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               ),
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+// Simple "G" lettermark that stands in for the official Google logo.
+class _GoogleLogo extends StatelessWidget {
+  const _GoogleLogo();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 18,
+      height: 18,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: Theme.of(context).colorScheme.primaryContainer,
+      ),
+      alignment: Alignment.center,
+      child: Text(
+        'G',
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.bold,
+          color: Theme.of(context).colorScheme.onPrimaryContainer,
         ),
       ),
     );

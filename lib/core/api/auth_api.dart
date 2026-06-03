@@ -61,6 +61,18 @@ class AuthApi {
       'refresh_token': refreshToken,
     });
   }
+
+  Future<({String accessToken, String refreshToken})> googleSignIn({
+    required String idToken,
+  }) async {
+    final response = await _dio.post('/api/v1/auth/google', data: {
+      'id_token': idToken,
+    });
+    return (
+      accessToken: response.data['access_token'] as String,
+      refreshToken: response.data['refresh_token'] as String,
+    );
+  }
 }
 
 final authApiProvider = Provider<AuthApi>((ref) => AuthApi());
