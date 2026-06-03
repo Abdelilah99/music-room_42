@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"fmt"
+	"net/http"
 
 	"github.com/gin-gonic/gin"
 	limiter "github.com/ulule/limiter/v3"
@@ -20,5 +21,7 @@ func NewRateLimiter(rateStr string) gin.HandlerFunc {
 	}
 	store := memory.NewStore()
 	instance := limiter.New(store, rate)
-	return mgin.NewMiddleware(instance)
+	return mgin.NewMiddleware(instance, mgin.WithLimitReachedHandler(func(c *gin.Context) {
+		c.JSON(http.StatusTooManyRequests, gin.H{"error": "rate limit exceeded"})
+	}))
 }

@@ -2,6 +2,7 @@ package handler
 
 import (
 	"net/http"
+	"strings"
 
 	"music-room/internal/middleware"
 	"music-room/internal/model"
@@ -50,6 +51,26 @@ func (h *ProfileHandler) UpdateMyProfile(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"status": "Profile updated successfully"})
+}
+
+func (h *ProfileHandler) SearchUsers(c *gin.Context) {
+	q := strings.TrimSpace(c.Query("q"))
+	if q == "" {
+		c.JSON(http.StatusOK, gin.H{"users": []any{}})
+		return
+	}
+
+	results, err := h.svc.SearchUsers(c.Request.Context(), q)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "An internal server error occurred"})
+		return
+	}
+
+	if results == nil {
+		results = []model.UserSearchResult{}
+	}
+
+	c.JSON(http.StatusOK, gin.H{"users": results})
 }
 
 func (h *ProfileHandler) GetUserProfile(c *gin.Context) {

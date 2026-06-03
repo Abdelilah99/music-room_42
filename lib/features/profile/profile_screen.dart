@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:music_room/core/models/user_profile.dart';
 import 'package:music_room/features/profile/profile_provider.dart';
 
@@ -51,6 +52,15 @@ class ProfileScreen extends ConsumerWidget {
           children: [
             _ProfileHeader(profile: profile),
             const SizedBox(height: 16),
+            Card(
+              child: ListTile(
+                leading: const Icon(Icons.people_outlined),
+                title: const Text('Friends'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => context.push('/profile/friends'),
+              ),
+            ),
+            const SizedBox(height: 12),
             _SectionCard(
               title: 'Public Info',
               icon: Icons.public_outlined,

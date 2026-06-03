@@ -28,6 +28,7 @@ type FriendService interface {
 	Unfriend(ctx context.Context, friendshipID, callerID uuid.UUID) error
 	ListFriends(ctx context.Context, userID uuid.UUID) ([]model.FriendEntry, error)
 	ListIncomingRequests(ctx context.Context, userID uuid.UUID) ([]model.FriendEntry, error)
+	ListOutgoingRequests(ctx context.Context, userID uuid.UUID) ([]model.FriendEntry, error)
 }
 
 type friendService struct {
@@ -104,7 +105,13 @@ func (s *friendService) Unfriend(ctx context.Context, friendshipID, callerID uui
 	if f.RequesterID != callerID && f.AddresseeID != callerID {
 		return ErrNotParticipantOp
 	}
-	if f.Status != "accepted" {
+
+	// Allow the requester to cancel a pending request they sent, or either
+	// participant to remove an accepted friendship.
+	if f.Status == "pending" && f.RequesterID != callerID {
+		return ErrNotParticipantOp
+	}
+	if f.Status != "pending" && f.Status != "accepted" {
 		return ErrRequestNotAccepted
 	}
 
@@ -117,4 +124,8 @@ func (s *friendService) ListFriends(ctx context.Context, userID uuid.UUID) ([]mo
 
 func (s *friendService) ListIncomingRequests(ctx context.Context, userID uuid.UUID) ([]model.FriendEntry, error) {
 	return s.repo.ListIncomingRequests(ctx, userID)
+}
+
+func (s *friendService) ListOutgoingRequests(ctx context.Context, userID uuid.UUID) ([]model.FriendEntry, error) {
+	return s.repo.ListOutgoingRequests(ctx, userID)
 }
