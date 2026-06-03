@@ -70,6 +70,7 @@ func verifyGoogleIDToken(ctx context.Context, idToken string) (*googleClaims, er
 
 type tokenVerifierFunc func(ctx context.Context, idToken string) (*googleClaims, error)
 
+//lint:ignore U1000 used in swagger annotations
 type googleSignInRequest struct {
 	IDToken string `json:"id_token" binding:"required"`
 }

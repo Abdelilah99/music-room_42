@@ -22,6 +22,7 @@ type FriendshipCreatedResponse struct {
 	Status       string `json:"status"`
 }
 
+//lint:ignore U1000 used in swagger annotations
 type sendFriendRequestBody struct {
 	AddresseeID string `json:"addressee_id" binding:"required,uuid"`
 }
