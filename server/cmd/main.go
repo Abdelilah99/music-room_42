@@ -12,7 +12,7 @@ package main
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"os"
 	"time"
 
@@ -32,36 +32,44 @@ import (
 )
 
 func main() {
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	})))
+
 	if err := godotenv.Load(); err != nil {
-		log.Println("No .env file found, reading from environment")
+		slog.Info("no .env file found, reading from environment")
 	}
 
 	middleware.RegisterJSONTagNames()
 
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
-		log.Fatal("DATABASE_URL environment variable is required")
+		slog.Error("DATABASE_URL environment variable is required")
+		os.Exit(1)
 	}
 
-	log.Println("Connecting to database...")
+	slog.Info("connecting to database")
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	config, err := pgxpool.ParseConfig(dbURL)
 	if err != nil {
-		log.Fatalf("Failed to parse database URL: %v", err)
+		slog.Error("failed to parse database URL", "error", err)
+		os.Exit(1)
 	}
 
 	pool, err := pgxpool.NewWithConfig(ctx, config)
 	if err != nil {
-		log.Fatalf("Failed to create database pool: %v", err)
+		slog.Error("failed to create database pool", "error", err)
+		os.Exit(1)
 	}
 	defer pool.Close()
 
 	if err := pool.Ping(ctx); err != nil {
-		log.Fatalf("Failed to ping database: %v", err)
+		slog.Error("failed to ping database", "error", err)
+		os.Exit(1)
 	}
-	log.Println("Database connection established")
+	slog.Info("database connection established")
 
 	// Registration repositories and services
 	authRepo := repository.NewAuthRepository(pool)
@@ -113,8 +121,10 @@ func main() {
 		port = "8080"
 	}
 
+	slog.Info("server starting", "port", port)
 	if err := r.Run(":" + port); err != nil {
-		log.Fatalf("Failed to start server: %v", err)
+		slog.Error("server stopped", "error", err)
+		os.Exit(1)
 	}
 }
 
@@ -131,9 +141,11 @@ func setupRouter(
 	globalLimitRate string,
 	authLimitRate string,
 ) *gin.Engine {
-	r := gin.Default()
+	r := gin.New()
+	r.Use(gin.Recovery())
 
 	r.Use(middleware.NewCORS(allowedOrigins))
+	r.Use(middleware.NewLogger())
 	r.Use(middleware.NewRateLimiter(globalLimitRate))
 
 	r.GET("/health", func(c *gin.Context) {
@@ -146,7 +158,6 @@ func setupRouter(
 
 	v1 := r.Group("/api/v1")
 	{
-		// Registration and email verification (public, stricter rate limit)
 		authGroup := v1.Group("/auth")
 		authGroup.Use(middleware.NewRateLimiter(authLimitRate))
 		{
@@ -161,7 +172,6 @@ func setupRouter(
 			authGroup.POST("/google", googleHandler.SignIn)
 		}
 
-		// Profile endpoints (JWT protected)
 		users := v1.Group("/users")
 		users.Use(jwtMiddleware.Authenticate())
 		{
@@ -171,14 +181,12 @@ func setupRouter(
 			users.GET("/:id", profileHandler.GetUserProfile)
 		}
 
-		// Account linking (JWT protected)
 		link := v1.Group("/auth/link")
 		link.Use(jwtMiddleware.Authenticate())
 		{
 			link.POST("/google", googleHandler.LinkGoogle)
 		}
 
-		// Friend endpoints (JWT protected)
 		friends := v1.Group("/friends")
 		friends.Use(jwtMiddleware.Authenticate())
 		{
@@ -191,16 +199,12 @@ func setupRouter(
 			friends.GET("/outgoing", friendHandler.ListOutgoing)
 		}
 
-		// Music endpoints (JWT protected)
 		music := v1.Group("/music")
 		music.Use(jwtMiddleware.Authenticate())
 		{
 			music.GET("/search", musicHandler.Search)
 		}
 
-		// WebSocket endpoint (JWT protected).
-		// :entityID is a generic room key reused by Track Vote, Control
-		// Delegation, and Playlist Editor — they each pass their own ID.
 		ws := v1.Group("/ws")
 		ws.Use(jwtMiddleware.Authenticate())
 		{
