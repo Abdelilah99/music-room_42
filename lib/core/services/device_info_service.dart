@@ -11,17 +11,21 @@ class DeviceInfoService {
   static String _appVersion = '';
 
   static Future<void> init() async {
-    final results = await Future.wait([
-      _channel.invokeMethod<String>('getModel'),
-      _channel.invokeMethod<String>('getManufacturer'),
-      _channel.invokeMethod<String>('getDeviceName'),
-      PackageInfo.fromPlatform(),
-    ]);
+    try {
+      final results = await Future.wait([
+        _channel.invokeMethod<String>('getModel'),
+        _channel.invokeMethod<String>('getManufacturer'),
+        _channel.invokeMethod<String>('getDeviceName'),
+        PackageInfo.fromPlatform(),
+      ]);
 
-    _model = (results[0] as String?) ?? '';
-    _manufacturer = (results[1] as String?) ?? '';
-    _deviceName = (results[2] as String?) ?? '';
-    _appVersion = (results[3] as PackageInfo).version;
+      _model = (results[0] as String?) ?? '';
+      _manufacturer = (results[1] as String?) ?? '';
+      _deviceName = (results[2] as String?) ?? '';
+      _appVersion = (results[3] as PackageInfo).version;
+    } catch (_) {
+      // MethodChannel not available on this platform - getters return empty strings
+    }
   }
 
   static String get model => _model;
