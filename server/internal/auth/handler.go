@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"music-room/internal/middleware"
 	"music-room/internal/model"
 	"music-room/internal/repository"
 	"net/http"
@@ -34,10 +35,20 @@ type LoginRequest struct {
 	Password string `json:"password" binding:"required"`
 }
 
+// Login godoc
+// @Summary      Log in with email and password
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Param        body body LoginRequest true "Credentials"
+// @Success      200 {object} tokenResponse
+// @Failure      400 {object} errorResponse
+// @Failure      401 {object} errorResponse "Invalid credentials"
+// @Failure      403 {object} errorResponse "Email not verified"
+// @Router       /auth/login [post]
 func (h *Handler) Login(c *gin.Context) {
 	var req LoginRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+	if !middleware.BindAndValidate(c, &req) {
 		return
 	}
 
@@ -79,10 +90,19 @@ type RefreshRequest struct {
 	RefreshToken string `json:"refresh_token" binding:"required"`
 }
 
+// Refresh godoc
+// @Summary      Refresh access token
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Param        body body RefreshRequest true "Refresh token"
+// @Success      200 {object} tokenResponse
+// @Failure      400 {object} errorResponse
+// @Failure      401 {object} errorResponse "Token invalid, expired, or revoked"
+// @Router       /auth/refresh [post]
 func (h *Handler) Refresh(c *gin.Context) {
 	var req RefreshRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+	if !middleware.BindAndValidate(c, &req) {
 		return
 	}
 
@@ -143,10 +163,18 @@ type LogoutRequest struct {
 	RefreshToken string `json:"refresh_token" binding:"required"`
 }
 
+// Logout godoc
+// @Summary      Log out and revoke refresh token
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Param        body body LogoutRequest true "Refresh token to revoke"
+// @Success      200 {object} messageResponse
+// @Failure      400 {object} errorResponse
+// @Router       /auth/logout [post]
 func (h *Handler) Logout(c *gin.Context) {
 	var req LogoutRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+	if !middleware.BindAndValidate(c, &req) {
 		return
 	}
 
