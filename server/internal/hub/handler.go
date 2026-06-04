@@ -1,7 +1,7 @@
 package hub
 
 import (
-	"log"
+	"log/slog"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -21,7 +21,7 @@ var upgrader = websocket.Upgrader{
 func ServeWS(manager *HubManager, entityID string, c *gin.Context) {
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
-		log.Printf("websocket upgrade error: %v", err)
+		slog.Error("websocket upgrade error", "error", err)
 		return
 	}
 

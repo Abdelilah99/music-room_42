@@ -2,7 +2,7 @@ package main
 
 import (
 	"database/sql"
-	"log"
+	"log/slog"
 	"os"
 
 	"github.com/golang-migrate/migrate/v4"
@@ -13,7 +13,10 @@ import (
 )
 
 func main() {
-	// Load environment variables from .env file
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	})))
+
 	_ = godotenv.Load()
 
 	action := "up"
@@ -26,51 +29,54 @@ func main() {
 		databaseURL = "postgres://postgres:postgres@localhost:5432/musicroom?sslmode=disable"
 	}
 
-	log.Printf("Connecting to database for migrations...")
+	slog.Info("connecting to database for migrations")
 	db, err := sql.Open("pgx", databaseURL)
 	if err != nil {
-		log.Fatalf("Failed to open database connection: %v", err)
+		slog.Error("failed to open database connection", "error", err)
+		os.Exit(1)
 	}
 	defer db.Close()
 
 	if err := db.Ping(); err != nil {
-		log.Fatalf("Failed to ping database: %v", err)
+		slog.Error("failed to ping database", "error", err)
+		os.Exit(1)
 	}
 
-	log.Printf("Initializing migrations from file://migrations...")
-	m, err := migrate.New(
-		"file://migrations",
-		databaseURL,
-	)
+	slog.Info("initializing migrations", "source", "file://migrations")
+	m, err := migrate.New("file://migrations", databaseURL)
 	if err != nil {
-		log.Fatalf("Failed to initialize migrations system: %v", err)
+		slog.Error("failed to initialize migrations system", "error", err)
+		os.Exit(1)
 	}
 	defer m.Close()
 
 	switch action {
 	case "up":
-		log.Printf("Applying database migrations (UP)...")
+		slog.Info("applying database migrations (UP)")
 		if err := m.Up(); err != nil {
 			if err == migrate.ErrNoChange {
-				log.Println("Database is already up to date. No migrations to apply.")
+				slog.Info("database is already up to date, no migrations to apply")
 			} else {
-				log.Fatalf("Failed to apply migrations up: %v", err)
+				slog.Error("failed to apply migrations", "error", err)
+				os.Exit(1)
 			}
 		} else {
-			log.Println("Database migrations applied successfully!")
+			slog.Info("database migrations applied successfully")
 		}
 	case "down":
-		log.Printf("Reverting database migrations (DOWN)...")
+		slog.Info("reverting database migrations (DOWN)")
 		if err := m.Down(); err != nil {
 			if err == migrate.ErrNoChange {
-				log.Println("No migrations to revert.")
+				slog.Info("no migrations to revert")
 			} else {
-				log.Fatalf("Failed to revert migrations down: %v", err)
+				slog.Error("failed to revert migrations", "error", err)
+				os.Exit(1)
 			}
 		} else {
-			log.Println("Database migrations reverted successfully!")
+			slog.Info("database migrations reverted successfully")
 		}
 	default:
-		log.Fatalf("Invalid migration action: %q. Use 'up' or 'down'", action)
+		slog.Error("invalid migration action", "action", action, "valid", []string{"up", "down"})
+		os.Exit(1)
 	}
 }
