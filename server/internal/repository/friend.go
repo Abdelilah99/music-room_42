@@ -17,6 +17,7 @@ type FriendRepository interface {
 	Delete(ctx context.Context, id uuid.UUID) error
 	ListFriends(ctx context.Context, userID uuid.UUID) ([]model.FriendEntry, error)
 	ListIncomingRequests(ctx context.Context, userID uuid.UUID) ([]model.FriendEntry, error)
+	ListOutgoingRequests(ctx context.Context, userID uuid.UUID) ([]model.FriendEntry, error)
 }
 
 type friendRepository struct {
@@ -123,6 +124,31 @@ func (r *friendRepository) ListIncomingRequests(ctx context.Context, userID uuid
 		FROM friendships f
 		JOIN users u ON u.id = f.requester_id
 		WHERE f.addressee_id = $1 AND f.status = 'pending'
+		ORDER BY f.created_at DESC`
+
+	rows, err := r.pool.Query(ctx, query, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var entries []model.FriendEntry
+	for rows.Next() {
+		var e model.FriendEntry
+		if err := rows.Scan(&e.FriendshipID, &e.UserID, &e.Email, &e.PublicInfo, &e.CreatedAt); err != nil {
+			return nil, err
+		}
+		entries = append(entries, e)
+	}
+	return entries, rows.Err()
+}
+
+func (r *friendRepository) ListOutgoingRequests(ctx context.Context, userID uuid.UUID) ([]model.FriendEntry, error) {
+	query := `
+		SELECT f.id, f.addressee_id, u.email, u.public_info, f.created_at
+		FROM friendships f
+		JOIN users u ON u.id = f.addressee_id
+		WHERE f.requester_id = $1 AND f.status = 'pending'
 		ORDER BY f.created_at DESC`
 
 	rows, err := r.pool.Query(ctx, query, userID)

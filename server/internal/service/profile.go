@@ -12,6 +12,7 @@ type ProfileService interface {
 	GetMyProfile(ctx context.Context, myID string) (*model.UserProfile, error)
 	UpdateMyProfile(ctx context.Context, myID string, req model.UpdateProfileRequest) error
 	GetUserProfile(ctx context.Context, myID, targetID string) (map[string]interface{}, error)
+	SearchUsers(ctx context.Context, query string) ([]model.UserSearchResult, error)
 }
 
 type profileService struct {
@@ -28,6 +29,10 @@ func (s *profileService) GetMyProfile(ctx context.Context, myID string) (*model.
 
 func (s *profileService) UpdateMyProfile(ctx context.Context, myID string, req model.UpdateProfileRequest) error {
 	return s.repo.UpdateProfile(ctx, myID, req)
+}
+
+func (s *profileService) SearchUsers(ctx context.Context, query string) ([]model.UserSearchResult, error) {
+	return s.repo.SearchUsers(ctx, query)
 }
 
 func (s *profileService) GetUserProfile(ctx context.Context, myID, targetID string) (map[string]interface{}, error) {
