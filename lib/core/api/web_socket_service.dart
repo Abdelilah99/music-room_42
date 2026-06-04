@@ -29,9 +29,9 @@ class WebSocketService {
   int _attempt = 0;
 
   WebSocketService({
-    required String this._path,
-    required Future<String?> Function() this._getToken,
-    required void Function(WsConnectionState) this._onStateChange,
+    required this._path,
+    required this._getToken,
+    required this._onStateChange,
   });
 
   Stream<dynamic> get stream => _controller.stream;
