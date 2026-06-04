@@ -18,7 +18,7 @@ class FriendsNotifier extends AsyncNotifier<FriendsData> {
   }
 
   Future<void> accept(String requestId) async {
-    final old = state.valueOrNull;
+    final old = state.value;
     if (old == null) return;
 
     final req = old.incoming.firstWhere((r) => r.id == requestId);
@@ -36,7 +36,7 @@ class FriendsNotifier extends AsyncNotifier<FriendsData> {
   }
 
   Future<void> reject(String requestId) async {
-    final old = state.valueOrNull;
+    final old = state.value;
     if (old == null) return;
 
     state = AsyncData(old.copyWith(
@@ -52,7 +52,7 @@ class FriendsNotifier extends AsyncNotifier<FriendsData> {
   }
 
   Future<void> cancelRequest(String requestId) async {
-    final old = state.valueOrNull;
+    final old = state.value;
     if (old == null) return;
 
     state = AsyncData(old.copyWith(
@@ -68,7 +68,7 @@ class FriendsNotifier extends AsyncNotifier<FriendsData> {
   }
 
   Future<void> unfriend(String friendshipId) async {
-    final old = state.valueOrNull;
+    final old = state.value;
     if (old == null) return;
 
     state = AsyncData(old.copyWith(
