@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:music_room/core/services/token_storage.dart';
 import 'package:web_socket_channel/io.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
@@ -14,7 +16,7 @@ class WebSocketService {
   static const _maxAttempts = 3;
 
   final String _path;
-  final String? _token;
+  final Future<String?> Function() _getToken;
   final void Function(WsConnectionState) _onStateChange;
 
   final _controller = StreamController<dynamic>.broadcast();
@@ -27,9 +29,9 @@ class WebSocketService {
   int _attempt = 0;
 
   WebSocketService({
-    required this._path,
-    this._token,
-    required this._onStateChange,
+    required String this._path,
+    required Future<String?> Function() this._getToken,
+    required void Function(WsConnectionState) this._onStateChange,
   });
 
   Stream<dynamic> get stream => _controller.stream;
@@ -40,7 +42,13 @@ class WebSocketService {
     _openSocket();
   }
 
-  void send(String message) => _channel?.sink.add(message);
+  void send(String message) {
+    if (_channel == null) {
+      debugPrint('WS send skipped: not connected to $_path');
+      return;
+    }
+    _channel!.sink.add(message);
+  }
 
   void disconnect() {
     _intentionalClose = true;
@@ -60,8 +68,11 @@ class WebSocketService {
     final base = dotenv.env['API_BASE_URL'] ?? '';
     final wsBase = base.replaceFirst(RegExp(r'^http'), 'ws');
     final uri = Uri.parse('$wsBase$_path');
-    final headers = _token != null
-        ? <String, dynamic>{'Authorization': 'Bearer $_token'}
+    // Fresh token read on every connect/reconnect so a refreshed access token
+    // is always used — avoids stale-token failures after the interceptor rotates it.
+    final token = await _getToken();
+    final headers = token != null
+        ? <String, dynamic>{'Authorization': 'Bearer $token'}
         : <String, dynamic>{};
 
     late WebSocketChannel channel;
@@ -116,10 +127,10 @@ class WebSocketService {
 class WsNotifier extends StateNotifier<WsConnectionState> {
   late final WebSocketService _service;
 
-  WsNotifier(String path, String? token) : super(WsConnectionState.connecting) {
+  WsNotifier(Ref ref, String path) : super(WsConnectionState.connecting) {
     _service = WebSocketService(
       path: path,
-      token: token,
+      getToken: () => ref.read(tokenStorageProvider).getAccessToken(),
       onStateChange: (s) {
         if (mounted) state = s;
       },
@@ -143,10 +154,9 @@ class WsNotifier extends StateNotifier<WsConnectionState> {
   }
 }
 
-/// autoDispose + family: each (path, token) pair gets its own hub connection.
-/// The connection is torn down automatically when the last listener
-/// unsubscribes — i.e. when the screen is removed from the widget tree.
+/// autoDispose + family: each hub path gets its own connection, torn down
+/// automatically when the last listener unsubscribes.
 final wsProvider = StateNotifierProvider.autoDispose
-    .family<WsNotifier, WsConnectionState, (String, String?)>(
-  (ref, args) => WsNotifier(args.$1, args.$2),
+    .family<WsNotifier, WsConnectionState, String>(
+  (ref, path) => WsNotifier(ref, path),
 );
