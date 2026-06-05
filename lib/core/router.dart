@@ -100,7 +100,7 @@ class _RouterNotifier extends ChangeNotifier {
     if (authAsync.isLoading) return null;
 
     final status =
-        authAsync.valueOrNull ?? AuthStatus.unauthenticated;
+        authAsync.value ?? AuthStatus.unauthenticated;
     final path = state.uri.path;
 
     final isAuthRoute = path.startsWith('/login') ||
