@@ -124,18 +124,24 @@ class WebSocketService {
 
 // ── Riverpod layer ────────────────────────────────────────────────────────────
 
-class WsNotifier extends StateNotifier<WsConnectionState> {
+class WsNotifier extends Notifier<WsConnectionState> {
+  WsNotifier(this._path);
+  final String _path;
+
   late final WebSocketService _service;
 
-  WsNotifier(Ref ref, String path) : super(WsConnectionState.connecting) {
+  @override
+  WsConnectionState build() {
     _service = WebSocketService(
-      path: path,
+      path: _path,
       getToken: () => ref.read(tokenStorageProvider).getAccessToken(),
       onStateChange: (s) {
-        if (mounted) state = s;
+        if (ref.mounted) state = s;
       },
     );
     _service.connect();
+    ref.onDispose(_service.disconnect);
+    return WsConnectionState.connecting;
   }
 
   Stream<dynamic> get messageStream => _service.stream;
@@ -146,17 +152,11 @@ class WsNotifier extends StateNotifier<WsConnectionState> {
   void reconnect() {
     _service.connect();
   }
-
-  @override
-  void dispose() {
-    _service.disconnect();
-    super.dispose();
-  }
 }
 
 /// autoDispose + family: each hub path gets its own connection, torn down
 /// automatically when the last listener unsubscribes.
-final wsProvider = StateNotifierProvider.autoDispose
+final wsProvider = NotifierProvider.autoDispose
     .family<WsNotifier, WsConnectionState, String>(
-  (ref, path) => WsNotifier(ref, path),
+  (path) => WsNotifier(path),
 );
