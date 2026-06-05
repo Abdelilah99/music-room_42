@@ -2,7 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:music_room/core/api/profile_api.dart';
 import 'package:music_room/core/models/user_profile.dart';
 
-class MyProfileNotifier extends AutoDisposeAsyncNotifier<UserProfile> {
+class MyProfileNotifier extends AsyncNotifier<UserProfile> {
   @override
   Future<UserProfile> build() => ref.read(profileApiProvider).getMyProfile();
 

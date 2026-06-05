@@ -15,13 +15,13 @@ class ProfileScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final profileAsync = ref.watch(myProfileProvider);
 
-    if (profileAsync.isLoading && profileAsync.valueOrNull == null) {
+    if (profileAsync.isLoading && profileAsync.value == null) {
       return const Scaffold(
         body: Center(child: CircularProgressIndicator()),
       );
     }
 
-    if (profileAsync.hasError && profileAsync.valueOrNull == null) {
+    if (profileAsync.hasError && profileAsync.value == null) {
       return Scaffold(
         body: Center(
           child: Column(
