@@ -115,11 +115,16 @@ func main() {
 	eventSvc := service.NewEventService(eventRepo)
 	eventHandler := handler.NewEventHandler(eventSvc)
 
+	// Track repositories and services
+	trackRepo := repository.NewTrackRepository(pool)
+	trackSvc := service.NewTrackService(eventRepo, trackRepo)
+	trackHandler := handler.NewTrackHandler(trackSvc)
+
 	allowedOrigins := os.Getenv("ALLOWED_ORIGINS")
 	globalLimit := getEnvOrDefault("RATE_LIMIT_GLOBAL", "100-M")
 	authLimit := getEnvOrDefault("RATE_LIMIT_AUTH", "10-M")
 
-	r := setupRouter(authHandler, jwtHandler, jwtService, profileHandler, friendHandler, musicHandler, googleHandler, hubManager, eventHandler, allowedOrigins, globalLimit, authLimit)
+	r := setupRouter(authHandler, jwtHandler, jwtService, profileHandler, friendHandler, musicHandler, googleHandler, hubManager, eventHandler, trackHandler, allowedOrigins, globalLimit, authLimit)
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -143,6 +148,7 @@ func setupRouter(
 	googleHandler *auth.GoogleHandler,
 	hubManager *hub.HubManager,
 	eventHandler *handler.EventHandler,
+	trackHandler *handler.TrackHandler,
 	allowedOrigins string,
 	globalLimitRate string,
 	authLimitRate string,
@@ -219,7 +225,6 @@ func setupRouter(
 			})
 		}
 
-		// Event endpoints (JWT protected)
 		events := v1.Group("/events")
 		events.Use(jwtMiddleware.Authenticate())
 		{
@@ -229,6 +234,10 @@ func setupRouter(
 			events.PUT("/:id", eventHandler.Update)
 			events.DELETE("/:id", eventHandler.Delete)
 			events.POST("/:id/invites", eventHandler.Invite)
+			events.POST("/:id/tracks", trackHandler.Suggest)
+			events.GET("/:id/queue", trackHandler.GetQueue)
+			events.POST("/:id/tracks/:trackId/vote", trackHandler.Vote)
+			events.DELETE("/:id/tracks/:trackId", trackHandler.DeleteTrack)
 		}
 	}
 
