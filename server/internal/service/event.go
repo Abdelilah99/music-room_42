@@ -3,17 +3,21 @@ package service
 import (
 	"context"
 	"errors"
+	"time"
 
 	"music-room/internal/model"
 	"music-room/internal/repository"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 var (
-	ErrEventNotFound = errors.New("event not found")
-	ErrNotEventOwner = errors.New("only the event owner can perform this action")
+	ErrEventNotFound        = errors.New("event not found")
+	ErrNotEventOwner        = errors.New("only the event owner can perform this action")
+	ErrUserNotFound         = errors.New("user not found")
+	ErrInvalidLicenseConfig = errors.New("license 1 requires lat, lng and radius; license 2 also requires vote_start and vote_end")
 )
 
 type EventService interface {
@@ -34,6 +38,9 @@ func NewEventService(repo repository.EventRepository) EventService {
 }
 
 func (s *eventService) Create(ctx context.Context, ownerID uuid.UUID, req model.CreateEventRequest) (*model.Event, error) {
+	if err := validateLicense(req.License, req.Lat, req.Lng, req.Radius, req.VoteStart, req.VoteEnd); err != nil {
+		return nil, err
+	}
 	return s.repo.Create(ctx, ownerID, req)
 }
 
@@ -56,11 +63,14 @@ func (s *eventService) Update(ctx context.Context, eventID, callerID uuid.UUID, 
 	_, err := s.repo.GetByIDForOwner(ctx, eventID, callerID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			// Could be not found or not the owner — return 404 in both cases
-			// to avoid leaking private event existence to non-owners.
 			return nil, ErrEventNotFound
 		}
 		return nil, err
+	}
+	if req.License != nil {
+		if err := validateLicense(*req.License, req.Lat, req.Lng, req.Radius, req.VoteStart, req.VoteEnd); err != nil {
+			return nil, err
+		}
 	}
 	return s.repo.Update(ctx, eventID, req)
 }
@@ -84,5 +94,29 @@ func (s *eventService) Invite(ctx context.Context, eventID, callerID, targetUser
 		}
 		return err
 	}
-	return s.repo.AddInvite(ctx, eventID, targetUserID)
+	if err := s.repo.AddInvite(ctx, eventID, targetUserID); err != nil {
+		if isPgFKViolation(err) {
+			return ErrUserNotFound
+		}
+		return err
+	}
+	return nil
+}
+
+func validateLicense(license int, lat, lng, radius *float64, voteStart, voteEnd *time.Time) error {
+	if license == 0 {
+		return nil
+	}
+	if lat == nil || lng == nil || radius == nil {
+		return ErrInvalidLicenseConfig
+	}
+	if license == 2 && (voteStart == nil || voteEnd == nil) {
+		return ErrInvalidLicenseConfig
+	}
+	return nil
+}
+
+func isPgFKViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23503"
 }

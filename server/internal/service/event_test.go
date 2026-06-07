@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // --- mock repository ---
@@ -220,5 +221,89 @@ func TestEventService_Invite_Owner(t *testing.T) {
 	}
 	if !invited {
 		t.Error("expected AddInvite to be called on repository")
+	}
+}
+
+func TestEventService_Invite_NonExistentUser_Returns404(t *testing.T) {
+	ownerID := uuid.New()
+	eventID := uuid.New()
+	fkErr := &pgconn.PgError{Code: "23503"}
+
+	repo := &mockEventRepo{
+		getByIDOwnerFn: func(_ context.Context, _, _ uuid.UUID) (*model.Event, error) {
+			return newEvent(ownerID), nil
+		},
+		addInviteFn: func(_ context.Context, _, _ uuid.UUID) error {
+			return fkErr
+		},
+	}
+
+	svc := service.NewEventService(repo)
+	err := svc.Invite(context.Background(), eventID, ownerID, uuid.New())
+	if !errors.Is(err, service.ErrUserNotFound) {
+		t.Errorf("expected ErrUserNotFound, got %v", err)
+	}
+}
+
+func TestEventService_Create_License1_MissingCoords_Returns400(t *testing.T) {
+	repo := &mockEventRepo{}
+	svc := service.NewEventService(repo)
+
+	_, err := svc.Create(context.Background(), uuid.New(), model.CreateEventRequest{
+		Name:       "Test",
+		Visibility: "public",
+		License:    1,
+	})
+	if !errors.Is(err, service.ErrInvalidLicenseConfig) {
+		t.Errorf("expected ErrInvalidLicenseConfig, got %v", err)
+	}
+}
+
+func TestEventService_Create_License2_MissingTimeWindow_Returns400(t *testing.T) {
+	repo := &mockEventRepo{}
+	svc := service.NewEventService(repo)
+
+	lat, lng, radius := 48.8566, 2.3522, 1000.0
+	_, err := svc.Create(context.Background(), uuid.New(), model.CreateEventRequest{
+		Name:       "Test",
+		Visibility: "public",
+		License:    2,
+		Lat:        &lat,
+		Lng:        &lng,
+		Radius:     &radius,
+	})
+	if !errors.Is(err, service.ErrInvalidLicenseConfig) {
+		t.Errorf("expected ErrInvalidLicenseConfig, got %v", err)
+	}
+}
+
+func TestEventService_Create_License2_AllFields_Succeeds(t *testing.T) {
+	ownerID := uuid.New()
+	want := newEvent(ownerID)
+	lat, lng, radius := 48.8566, 2.3522, 1000.0
+	now := time.Now()
+
+	repo := &mockEventRepo{
+		createFn: func(_ context.Context, _ uuid.UUID, _ model.CreateEventRequest) (*model.Event, error) {
+			return want, nil
+		},
+	}
+
+	svc := service.NewEventService(repo)
+	got, err := svc.Create(context.Background(), ownerID, model.CreateEventRequest{
+		Name:       "Test",
+		Visibility: "public",
+		License:    2,
+		Lat:        &lat,
+		Lng:        &lng,
+		Radius:     &radius,
+		VoteStart:  &now,
+		VoteEnd:    &now,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.ID != want.ID {
+		t.Errorf("expected event ID %s, got %s", want.ID, got.ID)
 	}
 }

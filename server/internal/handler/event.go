@@ -48,7 +48,7 @@ func (h *EventHandler) Create(c *gin.Context) {
 
 	event, err := h.svc.Create(c.Request.Context(), callerID, req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "an internal server error occurred"})
+		h.handleServiceError(c, err)
 		return
 	}
 
@@ -185,11 +185,16 @@ func (h *EventHandler) Invite(c *gin.Context) {
 }
 
 func (h *EventHandler) handleServiceError(c *gin.Context, err error) {
-	if errors.Is(err, service.ErrEventNotFound) {
+	switch {
+	case errors.Is(err, service.ErrEventNotFound):
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
-		return
+	case errors.Is(err, service.ErrUserNotFound):
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+	case errors.Is(err, service.ErrInvalidLicenseConfig):
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	default:
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "an internal server error occurred"})
 	}
-	c.JSON(http.StatusInternalServerError, gin.H{"error": "an internal server error occurred"})
 }
 
 // parseLocationParams parses ?lat=&lng=&radius= query params.
