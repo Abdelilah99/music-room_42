@@ -18,6 +18,7 @@ type EventRepository interface {
 	Update(ctx context.Context, eventID uuid.UUID, req model.UpdateEventRequest) (*model.Event, error)
 	Delete(ctx context.Context, eventID uuid.UUID) error
 	AddInvite(ctx context.Context, eventID, userID uuid.UUID) error
+	IsInvited(ctx context.Context, eventID, userID uuid.UUID) (bool, error)
 }
 
 type eventRepository struct {
@@ -156,4 +157,13 @@ func (r *eventRepository) AddInvite(ctx context.Context, eventID, userID uuid.UU
 		eventID, userID,
 	)
 	return err
+}
+
+func (r *eventRepository) IsInvited(ctx context.Context, eventID, userID uuid.UUID) (bool, error) {
+	var exists bool
+	err := r.pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM event_invites WHERE event_id=$1 AND user_id=$2)`,
+		eventID, userID,
+	).Scan(&exists)
+	return exists, err
 }
