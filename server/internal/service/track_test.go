@@ -242,10 +242,11 @@ func TestTrackService_Vote_TrackNotFound(t *testing.T) {
 	}
 }
 
-// TestTrackService_Vote_Concurrent verifies that two simultaneous votes
-// by different users both succeed and vote is counted exactly twice.
-// The actual DB-level atomicity relies on vote_count = vote_count + 1 — never a read-then-write.
-func TestTrackService_Vote_Concurrent(t *testing.T) {
+// TestTrackService_Vote_ServiceLayerConcurrency verifies the service does not
+// hold any shared state that would cause a race between two callers. DB-level
+// atomicity (vote_count = vote_count + 1) is covered by the integration test
+// in repository/track_test.go.
+func TestTrackService_Vote_ServiceLayerConcurrency(t *testing.T) {
 	eventID := uuid.New()
 	trackID := uuid.New()
 	var voteCount int32
