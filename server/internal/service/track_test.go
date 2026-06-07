@@ -19,8 +19,9 @@ import (
 // --- mock event repository (only methods used by trackService) ---
 
 type mockEventRepoForTrack struct {
-	getAccessibleFn  func(ctx context.Context, eventID, callerID uuid.UUID) (*model.Event, error)
-	getByIDOwnerFn   func(ctx context.Context, eventID, ownerID uuid.UUID) (*model.Event, error)
+	getAccessibleFn func(ctx context.Context, eventID, callerID uuid.UUID) (*model.Event, error)
+	getByIDOwnerFn  func(ctx context.Context, eventID, ownerID uuid.UUID) (*model.Event, error)
+	isInvitedFn     func(ctx context.Context, eventID, userID uuid.UUID) (bool, error)
 }
 
 func (m *mockEventRepoForTrack) Create(ctx context.Context, ownerID uuid.UUID, req model.CreateEventRequest) (*model.Event, error) {
@@ -43,6 +44,9 @@ func (m *mockEventRepoForTrack) Delete(ctx context.Context, eventID uuid.UUID) e
 }
 func (m *mockEventRepoForTrack) AddInvite(ctx context.Context, eventID, userID uuid.UUID) error {
 	panic("not expected")
+}
+func (m *mockEventRepoForTrack) IsInvited(ctx context.Context, eventID, userID uuid.UUID) (bool, error) {
+	return m.isInvitedFn(ctx, eventID, userID)
 }
 
 // --- mock track repository ---
@@ -333,6 +337,132 @@ func TestTrackService_DeleteTrack_NotOwner_Returns404(t *testing.T) {
 	err := svc.DeleteTrack(context.Background(), uuid.New(), uuid.New(), uuid.New())
 	if !errors.Is(err, service.ErrEventNotFound) {
 		t.Errorf("expected ErrEventNotFound, got %v", err)
+	}
+}
+
+// --- license enforcement tests ---
+
+func license1Event(eventID uuid.UUID) *model.Event {
+	return &model.Event{ID: eventID, License: 1, Visibility: "public"}
+}
+
+func license2Event(eventID uuid.UUID, lat, lng, radius float64, start, end time.Time) *model.Event {
+	return &model.Event{
+		ID: eventID, License: 2, Visibility: "public",
+		Lat: &lat, Lng: &lng, Radius: &radius,
+		VoteStart: &start, VoteEnd: &end,
+	}
+}
+
+func TestTrackService_Vote_License1_NotInvited_Returns403(t *testing.T) {
+	eventID := uuid.New()
+	eventRepo := &mockEventRepoForTrack{
+		getAccessibleFn: func(_ context.Context, eID, _ uuid.UUID) (*model.Event, error) {
+			return license1Event(eID), nil
+		},
+		isInvitedFn: func(_ context.Context, _, _ uuid.UUID) (bool, error) { return false, nil },
+	}
+	svc := service.NewTrackService(eventRepo, &mockTrackRepo{})
+	if !errors.Is(svc.Vote(context.Background(), eventID, uuid.New(), uuid.New(), model.VoteRequest{}), service.ErrNotInvited) {
+		t.Error("expected ErrNotInvited")
+	}
+}
+
+func TestTrackService_Vote_License1_Invited_Succeeds(t *testing.T) {
+	eventID, trackID := uuid.New(), uuid.New()
+	eventRepo := &mockEventRepoForTrack{
+		getAccessibleFn: func(_ context.Context, eID, _ uuid.UUID) (*model.Event, error) {
+			return license1Event(eID), nil
+		},
+		isInvitedFn: func(_ context.Context, _, _ uuid.UUID) (bool, error) { return true, nil },
+	}
+	trackRepo := &mockTrackRepo{
+		getByIDFn: func(_ context.Context, tID, eID uuid.UUID) (*model.Track, error) { return sampleTrack(eID, tID), nil },
+		voteFn:    func(_ context.Context, _, _ uuid.UUID) error { return nil },
+	}
+	if err := service.NewTrackService(eventRepo, trackRepo).Vote(context.Background(), eventID, trackID, uuid.New(), model.VoteRequest{}); err != nil {
+		t.Fatalf("expected success, got %v", err)
+	}
+}
+
+func TestTrackService_Vote_License2_MissingCoords_Returns400(t *testing.T) {
+	eventID := uuid.New()
+	now := time.Now()
+	eventRepo := &mockEventRepoForTrack{
+		getAccessibleFn: func(_ context.Context, eID, _ uuid.UUID) (*model.Event, error) {
+			return license2Event(eID, 48.8566, 2.3522, 10, now.Add(-time.Hour), now.Add(time.Hour)), nil
+		},
+	}
+	if !errors.Is(service.NewTrackService(eventRepo, &mockTrackRepo{}).Vote(context.Background(), eventID, uuid.New(), uuid.New(), model.VoteRequest{}), service.ErrMissingCoords) {
+		t.Error("expected ErrMissingCoords")
+	}
+}
+
+func TestTrackService_Vote_License2_OutOfRange_Returns403(t *testing.T) {
+	eventID := uuid.New()
+	now := time.Now()
+	eventRepo := &mockEventRepoForTrack{
+		getAccessibleFn: func(_ context.Context, eID, _ uuid.UUID) (*model.Event, error) {
+			return license2Event(eID, 48.8566, 2.3522, 1, now.Add(-time.Hour), now.Add(time.Hour)), nil
+		},
+	}
+	lat, lng := 51.5074, -0.1278 // London, ~340 km from Paris
+	if !errors.Is(service.NewTrackService(eventRepo, &mockTrackRepo{}).Vote(context.Background(), eventID, uuid.New(), uuid.New(), model.VoteRequest{Lat: &lat, Lng: &lng}), service.ErrOutOfRange) {
+		t.Error("expected ErrOutOfRange")
+	}
+}
+
+func TestTrackService_Vote_License2_VotingClosed_Returns403(t *testing.T) {
+	eventID := uuid.New()
+	past := time.Now().Add(-2 * time.Hour)
+	eventRepo := &mockEventRepoForTrack{
+		getAccessibleFn: func(_ context.Context, eID, _ uuid.UUID) (*model.Event, error) {
+			return license2Event(eID, 48.8566, 2.3522, 10000, past.Add(-time.Hour), past), nil
+		},
+	}
+	lat, lng := 48.8566, 2.3522
+	if !errors.Is(service.NewTrackService(eventRepo, &mockTrackRepo{}).Vote(context.Background(), eventID, uuid.New(), uuid.New(), model.VoteRequest{Lat: &lat, Lng: &lng}), service.ErrVotingClosed) {
+		t.Error("expected ErrVotingClosed")
+	}
+}
+
+func TestTrackService_Vote_License2_AllConditionsMet_Succeeds(t *testing.T) {
+	eventID, trackID := uuid.New(), uuid.New()
+	now := time.Now()
+	eventRepo := &mockEventRepoForTrack{
+		getAccessibleFn: func(_ context.Context, eID, _ uuid.UUID) (*model.Event, error) {
+			return license2Event(eID, 48.8566, 2.3522, 10000, now.Add(-time.Hour), now.Add(time.Hour)), nil
+		},
+	}
+	trackRepo := &mockTrackRepo{
+		getByIDFn: func(_ context.Context, tID, eID uuid.UUID) (*model.Track, error) { return sampleTrack(eID, tID), nil },
+		voteFn:    func(_ context.Context, _, _ uuid.UUID) error { return nil },
+	}
+	lat, lng := 48.8566, 2.3522
+	if err := service.NewTrackService(eventRepo, trackRepo).Vote(context.Background(), eventID, trackID, uuid.New(), model.VoteRequest{Lat: &lat, Lng: &lng}); err != nil {
+		t.Fatalf("expected success, got %v", err)
+	}
+}
+
+// --- haversine tests ---
+
+func TestHaversineKm_ParisToBerlin(t *testing.T) {
+	got := service.HaversineKm(48.8566, 2.3522, 52.5200, 13.4050)
+	if got < 870 || got > 890 {
+		t.Errorf("Paris-Berlin: expected ~878 km, got %.1f", got)
+	}
+}
+
+func TestHaversineKm_SamePoint_ReturnsZero(t *testing.T) {
+	if got := service.HaversineKm(48.8566, 2.3522, 48.8566, 2.3522); got > 0.001 {
+		t.Errorf("same point: expected 0, got %.6f", got)
+	}
+}
+
+func TestHaversineKm_ParisToLondon(t *testing.T) {
+	got := service.HaversineKm(48.8566, 2.3522, 51.5074, -0.1278)
+	if got < 330 || got > 350 {
+		t.Errorf("Paris-London: expected ~340 km, got %.1f", got)
 	}
 }
 
