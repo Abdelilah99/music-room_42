@@ -245,14 +245,41 @@ func TestEventService_Invite_NonExistentUser_Returns404(t *testing.T) {
 	}
 }
 
-func TestEventService_Create_License1_MissingCoords_Returns400(t *testing.T) {
+func TestEventService_Create_License1_NoCoords_Succeeds(t *testing.T) {
+	ownerID := uuid.New()
+	want := newEvent(ownerID)
+
+	repo := &mockEventRepo{
+		createFn: func(_ context.Context, _ uuid.UUID, _ model.CreateEventRequest) (*model.Event, error) {
+			return want, nil
+		},
+	}
+	svc := service.NewEventService(repo)
+
+	got, err := svc.Create(context.Background(), ownerID, model.CreateEventRequest{
+		Name:       "Test",
+		Visibility: "invite_only",
+		License:    1,
+	})
+	if err != nil {
+		t.Fatalf("license 1 without coords should succeed, got: %v", err)
+	}
+	if got.ID != want.ID {
+		t.Errorf("expected event ID %s, got %s", want.ID, got.ID)
+	}
+}
+
+func TestEventService_Create_License2_MissingCoords_Returns400(t *testing.T) {
 	repo := &mockEventRepo{}
 	svc := service.NewEventService(repo)
 
+	now := time.Now()
 	_, err := svc.Create(context.Background(), uuid.New(), model.CreateEventRequest{
 		Name:       "Test",
 		Visibility: "public",
-		License:    1,
+		License:    2,
+		VoteStart:  &now,
+		VoteEnd:    &now,
 	})
 	if !errors.Is(err, service.ErrInvalidLicenseConfig) {
 		t.Errorf("expected ErrInvalidLicenseConfig, got %v", err)

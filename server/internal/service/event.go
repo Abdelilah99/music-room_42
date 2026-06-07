@@ -17,7 +17,7 @@ var (
 	ErrEventNotFound        = errors.New("event not found")
 	ErrNotEventOwner        = errors.New("only the event owner can perform this action")
 	ErrUserNotFound         = errors.New("user not found")
-	ErrInvalidLicenseConfig = errors.New("license 1 requires lat, lng and radius; license 2 also requires vote_start and vote_end")
+	ErrInvalidLicenseConfig = errors.New("license 2 requires lat, lng, radius, vote_start and vote_end")
 )
 
 type EventService interface {
@@ -104,14 +104,10 @@ func (s *eventService) Invite(ctx context.Context, eventID, callerID, targetUser
 }
 
 func validateLicense(license int, lat, lng, radius *float64, voteStart, voteEnd *time.Time) error {
-	if license == 0 {
-		return nil
-	}
-	if lat == nil || lng == nil || radius == nil {
-		return ErrInvalidLicenseConfig
-	}
-	if license == 2 && (voteStart == nil || voteEnd == nil) {
-		return ErrInvalidLicenseConfig
+	if license == 2 {
+		if lat == nil || lng == nil || radius == nil || voteStart == nil || voteEnd == nil {
+			return ErrInvalidLicenseConfig
+		}
 	}
 	return nil
 }
