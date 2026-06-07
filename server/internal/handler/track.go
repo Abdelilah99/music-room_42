@@ -97,7 +97,7 @@ func (h *TrackHandler) Vote(c *gin.Context) {
 		}
 	}
 
-	if err := h.svc.Vote(c.Request.Context(), eventID, trackID, callerID); err != nil {
+	if err := h.svc.Vote(c.Request.Context(), eventID, trackID, callerID, req); err != nil {
 		h.handleTrackError(c, err)
 		return
 	}
