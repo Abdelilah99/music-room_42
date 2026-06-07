@@ -11,6 +11,7 @@ import 'package:music_room/features/playlist_editor/playlist_editor_screen.dart'
 import 'package:music_room/features/profile/friends_screen.dart';
 import 'package:music_room/features/profile/profile_screen.dart';
 import 'package:music_room/features/profile/user_profile_screen.dart';
+import 'package:music_room/features/track_vote/event_detail_screen.dart';
 import 'package:music_room/features/track_vote/track_vote_screen.dart';
 
 // ── Router provider ──────────────────────────────────────────────────────────
@@ -50,6 +51,12 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/vote',
             builder: (_, _) => const TrackVoteScreen(),
+          ),
+          GoRoute(
+            path: '/events/:id',
+            builder: (_, state) => EventDetailScreen(
+              eventId: state.pathParameters['id']!,
+            ),
           ),
           GoRoute(
             path: '/delegation',
