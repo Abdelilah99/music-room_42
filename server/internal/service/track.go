@@ -21,7 +21,7 @@ var (
 type TrackService interface {
 	Suggest(ctx context.Context, eventID, callerID uuid.UUID, req model.SuggestTrackRequest) (*model.Track, error)
 	GetQueue(ctx context.Context, eventID, callerID uuid.UUID) ([]model.Track, error)
-	Vote(ctx context.Context, eventID, trackID, callerID uuid.UUID) error
+	Vote(ctx context.Context, eventID, trackID, callerID uuid.UUID, gps model.VoteRequest) error
 	DeleteTrack(ctx context.Context, eventID, trackID, callerID uuid.UUID) error
 }
 
@@ -63,7 +63,9 @@ func (s *trackService) GetQueue(ctx context.Context, eventID, callerID uuid.UUID
 	return s.trackRepo.GetQueue(ctx, eventID)
 }
 
-func (s *trackService) Vote(ctx context.Context, eventID, trackID, callerID uuid.UUID) error {
+// gps is accepted for future geofence enforcement (license 2, tracked in #27).
+// It is threaded through now so callers do not need a breaking change when #27 lands.
+func (s *trackService) Vote(ctx context.Context, eventID, trackID, callerID uuid.UUID, gps model.VoteRequest) error {
 	if _, err := s.eventRepo.GetAccessible(ctx, eventID, callerID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrEventNotFound

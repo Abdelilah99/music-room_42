@@ -196,7 +196,7 @@ func TestTrackService_Vote_Success(t *testing.T) {
 	}
 
 	svc := service.NewTrackService(eventRepo, trackRepo)
-	if err := svc.Vote(context.Background(), eventID, trackID, uuid.New()); err != nil {
+	if err := svc.Vote(context.Background(), eventID, trackID, uuid.New(), model.VoteRequest{}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -217,7 +217,7 @@ func TestTrackService_Vote_AlreadyVoted_Returns409(t *testing.T) {
 	}
 
 	svc := service.NewTrackService(eventRepo, trackRepo)
-	err := svc.Vote(context.Background(), uuid.New(), uuid.New(), uuid.New())
+	err := svc.Vote(context.Background(), uuid.New(), uuid.New(), uuid.New(), model.VoteRequest{})
 	if !errors.Is(err, service.ErrAlreadyVoted) {
 		t.Errorf("expected ErrAlreadyVoted, got %v", err)
 	}
@@ -236,7 +236,7 @@ func TestTrackService_Vote_TrackNotFound(t *testing.T) {
 	}
 
 	svc := service.NewTrackService(eventRepo, trackRepo)
-	err := svc.Vote(context.Background(), uuid.New(), uuid.New(), uuid.New())
+	err := svc.Vote(context.Background(), uuid.New(), uuid.New(), uuid.New(), model.VoteRequest{})
 	if !errors.Is(err, service.ErrTrackNotFound) {
 		t.Errorf("expected ErrTrackNotFound, got %v", err)
 	}
@@ -271,7 +271,7 @@ func TestTrackService_Vote_ServiceLayerConcurrency(t *testing.T) {
 	errs := make(chan error, 2)
 	for i := 0; i < 2; i++ {
 		go func() {
-			errs <- svc.Vote(context.Background(), eventID, trackID, uuid.New())
+			errs <- svc.Vote(context.Background(), eventID, trackID, uuid.New(), model.VoteRequest{})
 		}()
 	}
 
