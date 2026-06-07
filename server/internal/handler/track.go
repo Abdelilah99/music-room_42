@@ -89,6 +89,14 @@ func (h *TrackHandler) Vote(c *gin.Context) {
 		return
 	}
 
+	var req model.VoteRequest
+	if c.Request.ContentLength > 0 {
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+			return
+		}
+	}
+
 	if err := h.svc.Vote(c.Request.Context(), eventID, trackID, callerID); err != nil {
 		h.handleTrackError(c, err)
 		return
