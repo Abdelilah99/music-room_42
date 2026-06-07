@@ -110,11 +110,16 @@ func main() {
 	// WebSocket hub manager (shared across all real-time services)
 	hubManager := hub.NewHubManager()
 
+	// Event repositories and services
+	eventRepo := repository.NewEventRepository(pool)
+	eventSvc := service.NewEventService(eventRepo)
+	eventHandler := handler.NewEventHandler(eventSvc)
+
 	allowedOrigins := os.Getenv("ALLOWED_ORIGINS")
 	globalLimit := getEnvOrDefault("RATE_LIMIT_GLOBAL", "100-M")
 	authLimit := getEnvOrDefault("RATE_LIMIT_AUTH", "10-M")
 
-	r := setupRouter(authHandler, jwtHandler, jwtService, profileHandler, friendHandler, musicHandler, googleHandler, hubManager, allowedOrigins, globalLimit, authLimit)
+	r := setupRouter(authHandler, jwtHandler, jwtService, profileHandler, friendHandler, musicHandler, googleHandler, hubManager, eventHandler, allowedOrigins, globalLimit, authLimit)
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -137,6 +142,7 @@ func setupRouter(
 	musicHandler *handler.MusicHandler,
 	googleHandler *auth.GoogleHandler,
 	hubManager *hub.HubManager,
+	eventHandler *handler.EventHandler,
 	allowedOrigins string,
 	globalLimitRate string,
 	authLimitRate string,
@@ -211,6 +217,18 @@ func setupRouter(
 			ws.GET("/:entityID", func(c *gin.Context) {
 				hub.ServeWS(hubManager, c.Param("entityID"), c)
 			})
+		}
+
+		// Event endpoints (JWT protected)
+		events := v1.Group("/events")
+		events.Use(jwtMiddleware.Authenticate())
+		{
+			events.POST("", eventHandler.Create)
+			events.GET("", eventHandler.List)
+			events.GET("/:id", eventHandler.Get)
+			events.PUT("/:id", eventHandler.Update)
+			events.DELETE("/:id", eventHandler.Delete)
+			events.POST("/:id/invites", eventHandler.Invite)
 		}
 	}
 
