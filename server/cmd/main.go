@@ -218,7 +218,7 @@ func setupRouter(
 		}
 
 		ws := v1.Group("/ws")
-		ws.Use(jwtMiddleware.Authenticate())
+		ws.Use(jwtMiddleware.AuthenticateWS())
 		{
 			ws.GET("/:entityID", func(c *gin.Context) {
 				hub.ServeWS(hubManager, c.Param("entityID"), c)
