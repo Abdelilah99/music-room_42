@@ -42,6 +42,19 @@ func (m *HubManager) GetOrCreate(entityID string) *Hub {
 	return h
 }
 
+// Broadcast sends msg to every client in the hub for entityID. If no hub
+// exists (nobody is connected), it does nothing - it never creates a hub,
+// so a broadcast to an unwatched entity cannot leak an idle room.
+func (m *HubManager) Broadcast(entityID string, msg []byte) {
+	m.mu.Lock()
+	h, ok := m.hubs[entityID]
+	m.mu.Unlock()
+	if !ok {
+		return
+	}
+	h.Broadcast(msg)
+}
+
 // Len returns the number of active hubs. Useful for tests and metrics.
 func (m *HubManager) Len() int {
 	m.mu.Lock()
