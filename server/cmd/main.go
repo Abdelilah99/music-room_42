@@ -118,7 +118,7 @@ func main() {
 	// Track repositories and services
 	trackRepo := repository.NewTrackRepository(pool)
 	trackSvc := service.NewTrackService(eventRepo, trackRepo)
-	trackHandler := handler.NewTrackHandler(trackSvc)
+	trackHandler := handler.NewTrackHandler(trackSvc, hubManager)
 
 	allowedOrigins := os.Getenv("ALLOWED_ORIGINS")
 	globalLimit := getEnvOrDefault("RATE_LIMIT_GLOBAL", "100-M")
