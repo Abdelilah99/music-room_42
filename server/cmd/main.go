@@ -118,7 +118,7 @@ func main() {
 	// Track repositories and services
 	trackRepo := repository.NewTrackRepository(pool)
 	trackSvc := service.NewTrackService(eventRepo, trackRepo)
-	trackHandler := handler.NewTrackHandler(trackSvc)
+	trackHandler := handler.NewTrackHandler(trackSvc, hubManager)
 
 	allowedOrigins := os.Getenv("ALLOWED_ORIGINS")
 	globalLimit := getEnvOrDefault("RATE_LIMIT_GLOBAL", "100-M")
@@ -218,7 +218,7 @@ func setupRouter(
 		}
 
 		ws := v1.Group("/ws")
-		ws.Use(jwtMiddleware.Authenticate())
+		ws.Use(jwtMiddleware.AuthenticateWS())
 		{
 			ws.GET("/:entityID", func(c *gin.Context) {
 				hub.ServeWS(hubManager, c.Param("entityID"), c)

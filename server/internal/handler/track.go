@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 
@@ -11,12 +12,27 @@ import (
 	"github.com/google/uuid"
 )
 
-type TrackHandler struct {
-	svc service.TrackService
+// QueueBroadcaster pushes a serialized message to every client watching an
+// event's hub. Satisfied by hub.HubManager.
+type QueueBroadcaster interface {
+	HasHub(entityID string) bool
+	Broadcast(entityID string, msg []byte)
 }
 
-func NewTrackHandler(svc service.TrackService) *TrackHandler {
-	return &TrackHandler{svc: svc}
+// queueUpdate is the WebSocket frame sent after a vote. Its data field carries
+// the same track shape as GET /events/:id/queue so clients can replace state.
+type queueUpdate struct {
+	Type string        `json:"type"`
+	Data []model.Track `json:"data"`
+}
+
+type TrackHandler struct {
+	svc         service.TrackService
+	broadcaster QueueBroadcaster
+}
+
+func NewTrackHandler(svc service.TrackService, broadcaster QueueBroadcaster) *TrackHandler {
+	return &TrackHandler{svc: svc, broadcaster: broadcaster}
 }
 
 func (h *TrackHandler) Suggest(c *gin.Context) {
@@ -102,7 +118,34 @@ func (h *TrackHandler) Vote(c *gin.Context) {
 		return
 	}
 
+	h.broadcastQueue(c, eventID, callerID)
+
 	c.JSON(http.StatusOK, gin.H{"message": "vote cast"})
+}
+
+// broadcastQueue pushes the updated queue to every client watching the event.
+// Best-effort: the vote has already been recorded, so any failure here is
+// swallowed rather than turned into an error response.
+func (h *TrackHandler) broadcastQueue(c *gin.Context, eventID, callerID uuid.UUID) {
+	// Nothing to do if nobody is watching this event - skip the queue query.
+	if h.broadcaster == nil || !h.broadcaster.HasHub(eventID.String()) {
+		return
+	}
+
+	tracks, err := h.svc.GetQueue(c.Request.Context(), eventID, callerID)
+	if err != nil {
+		return
+	}
+	if tracks == nil {
+		tracks = []model.Track{}
+	}
+
+	payload, err := json.Marshal(queueUpdate{Type: "queue_update", Data: tracks})
+	if err != nil {
+		return
+	}
+
+	h.broadcaster.Broadcast(eventID.String(), payload)
 }
 
 func (h *TrackHandler) DeleteTrack(c *gin.Context) {
