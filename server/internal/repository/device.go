@@ -44,12 +44,18 @@ func (r *deviceRepository) Create(ctx context.Context, userID uuid.UUID, req mod
 }
 
 func (r *deviceRepository) List(ctx context.Context, userID uuid.UUID) ([]model.DeviceWithDelegate, error) {
+	// LATERAL picks at most one active delegation per device, so the result
+	// is safe even if multiple non-revoked rows exist for the same device.
 	query := `
 		SELECT d.id, d.user_id, d.name, d.platform, d.model, d.created_at,
-		       del.delegate_id, u.email
+		       active_del.delegate_id, u.email
 		FROM devices d
-		LEFT JOIN delegations del ON del.device_id = d.id AND del.revoked_at IS NULL
-		LEFT JOIN users u ON u.id = del.delegate_id
+		LEFT JOIN LATERAL (
+			SELECT delegate_id FROM delegations
+			WHERE device_id = d.id AND revoked_at IS NULL
+			ORDER BY created_at DESC LIMIT 1
+		) active_del ON true
+		LEFT JOIN users u ON u.id = active_del.delegate_id
 		WHERE d.user_id = $1
 		ORDER BY d.created_at ASC`
 
