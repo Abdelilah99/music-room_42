@@ -15,6 +15,7 @@ import (
 // QueueBroadcaster pushes a serialized message to every client watching an
 // event's hub. Satisfied by hub.HubManager.
 type QueueBroadcaster interface {
+	HasHub(entityID string) bool
 	Broadcast(entityID string, msg []byte)
 }
 
@@ -126,7 +127,8 @@ func (h *TrackHandler) Vote(c *gin.Context) {
 // Best-effort: the vote has already been recorded, so any failure here is
 // swallowed rather than turned into an error response.
 func (h *TrackHandler) broadcastQueue(c *gin.Context, eventID, callerID uuid.UUID) {
-	if h.broadcaster == nil {
+	// Nothing to do if nobody is watching this event - skip the queue query.
+	if h.broadcaster == nil || !h.broadcaster.HasHub(eventID.String()) {
 		return
 	}
 

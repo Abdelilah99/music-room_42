@@ -55,6 +55,16 @@ func (m *HubManager) Broadcast(entityID string, msg []byte) {
 	h.Broadcast(msg)
 }
 
+// HasHub reports whether a hub currently exists for entityID, i.e. at least
+// one client is connected. Callers can use this to skip work (such as a DB
+// query) when there is nobody to broadcast to.
+func (m *HubManager) HasHub(entityID string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	_, ok := m.hubs[entityID]
+	return ok
+}
+
 // Len returns the number of active hubs. Useful for tests and metrics.
 func (m *HubManager) Len() int {
 	m.mu.Lock()

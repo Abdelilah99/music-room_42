@@ -180,6 +180,25 @@ func TestManagerBroadcastReachesClients(t *testing.T) {
 	}
 }
 
+// TestManagerHasHub verifies HasHub reflects whether a hub exists for an entity.
+func TestManagerHasHub(t *testing.T) {
+	manager := NewHubManager()
+
+	if manager.HasHub("room-has") {
+		t.Error("expected no hub before any client connects")
+	}
+
+	dialTestServer(t, manager, "room-has")
+	time.Sleep(50 * time.Millisecond)
+
+	if !manager.HasHub("room-has") {
+		t.Error("expected a hub once a client is connected")
+	}
+	if manager.HasHub("other-room") {
+		t.Error("did not expect a hub for an entity with no clients")
+	}
+}
+
 // TestManagerBroadcastToMissingHubIsNoop verifies that broadcasting to an
 // entity with no connected clients neither panics nor creates an idle hub.
 func TestManagerBroadcastToMissingHubIsNoop(t *testing.T) {
