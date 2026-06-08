@@ -253,7 +253,7 @@ class _CreateEventScreenState extends ConsumerState<CreateEventScreen> {
                           labelText: 'Latitude',
                           border: OutlineInputBorder(),
                         ),
-                        validator: _needsGeofence ? _coordValidator : null,
+                        validator: _needsGeofence ? _latValidator : null,
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -266,7 +266,7 @@ class _CreateEventScreenState extends ConsumerState<CreateEventScreen> {
                           labelText: 'Longitude',
                           border: OutlineInputBorder(),
                         ),
-                        validator: _needsGeofence ? _coordValidator : null,
+                        validator: _needsGeofence ? _lngValidator : null,
                       ),
                     ),
                   ],
@@ -309,9 +309,17 @@ class _CreateEventScreenState extends ConsumerState<CreateEventScreen> {
     );
   }
 
-  String? _coordValidator(String? v) {
+  String? _latValidator(String? v) {
     final d = double.tryParse((v ?? '').trim());
     if (d == null) return 'Required';
+    if (d < -90 || d > 90) return 'Must be between -90 and 90';
+    return null;
+  }
+
+  String? _lngValidator(String? v) {
+    final d = double.tryParse((v ?? '').trim());
+    if (d == null) return 'Required';
+    if (d < -180 || d > 180) return 'Must be between -180 and 180';
     return null;
   }
 

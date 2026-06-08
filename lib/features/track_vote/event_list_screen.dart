@@ -26,7 +26,9 @@ class _EventListScreenState extends ConsumerState<EventListScreen> {
   }
 
   // Debounced so a request fires only after the user pauses typing (300ms).
+  // setState updates the clear button immediately on each keystroke.
   void _onSearchChanged(String value) {
+    setState(() {});
     _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: 300), () {
       ref.read(eventsProvider.notifier).search(value.trim());
@@ -123,7 +125,10 @@ class _EventTile extends ConsumerWidget {
       return '$mm/$dd $hh:$mi';
     }
 
-    return '${fmt(start)} - ${fmt(end)}';
+    // Times are shown in the device local zone; label it so users in other
+    // zones know what the window refers to.
+    final tz = start.toLocal().timeZoneName;
+    return '${fmt(start)} - ${fmt(end)} $tz';
   }
 
   @override
