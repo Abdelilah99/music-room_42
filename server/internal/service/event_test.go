@@ -47,6 +47,9 @@ func (m *mockEventRepo) Delete(ctx context.Context, eventID uuid.UUID) error {
 func (m *mockEventRepo) AddInvite(ctx context.Context, eventID, userID uuid.UUID) error {
 	return m.addInviteFn(ctx, eventID, userID)
 }
+func (m *mockEventRepo) IsInvited(_ context.Context, _, _ uuid.UUID) (bool, error) {
+	panic("not expected")
+}
 
 // --- helpers ---
 
