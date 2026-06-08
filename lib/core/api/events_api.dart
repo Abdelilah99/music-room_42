@@ -38,9 +38,9 @@ class EventsApi {
       'name': name,
       'visibility': visibility,
       'license': license,
-      if (lat != null) 'lat': lat,
-      if (lng != null) 'lng': lng,
-      if (radius != null) 'radius': radius,
+      'lat': ?lat,
+      'lng': ?lng,
+      'radius': ?radius,
       if (voteStart != null) 'vote_start': voteStart.toUtc().toIso8601String(),
       if (voteEnd != null) 'vote_end': voteEnd.toUtc().toIso8601String(),
     };
