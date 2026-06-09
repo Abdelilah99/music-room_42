@@ -27,8 +27,7 @@ class DevicesNotifier extends AsyncNotifier<List<Device>> {
     if (_autoRegisterAttempted) return devices;
     _autoRegisterAttempted = true;
 
-    final model = DeviceInfoService.model;
-    if (model.isEmpty) return devices;
+    final model = _currentModel();
     if (devices.any((d) => d.model == model)) return devices;
 
     try {
@@ -43,16 +42,24 @@ class DevicesNotifier extends AsyncNotifier<List<Device>> {
     }
   }
 
-  // A readable name for the current device, falling back to manufacturer+model
-  // when the system device name is unavailable.
+  // A stable, non-blank identifier for the current device. The server keys
+  // device uniqueness on `model`, so this must resolve to the same value on
+  // every launch, otherwise the same physical device can be registered more
+  // than once. Trimmed so a whitespace-only platform value never slips through,
+  // and falls back to a constant when the model is unavailable (e.g. on some
+  // emulators) so we never send a blank model.
+  String _currentModel() {
+    final model = DeviceInfoService.model.trim();
+    if (model.isNotEmpty) return model;
+    final manufacturer = DeviceInfoService.manufacturer.trim();
+    return manufacturer.isNotEmpty ? manufacturer : 'Unknown Android device';
+  }
+
+  // A readable name for the current device, falling back to the model when the
+  // system device name is unavailable.
   String _currentDeviceName() {
-    final name = DeviceInfoService.deviceName;
-    if (name.isNotEmpty) return name;
-    final manufacturer = DeviceInfoService.manufacturer;
-    final model = DeviceInfoService.model;
-    final composed =
-        [manufacturer, model].where((s) => s.isNotEmpty).join(' ').trim();
-    return composed.isEmpty ? 'Android device' : composed;
+    final name = DeviceInfoService.deviceName.trim();
+    return name.isNotEmpty ? name : _currentModel();
   }
 
   Future<void> refresh() async {
@@ -62,9 +69,11 @@ class DevicesNotifier extends AsyncNotifier<List<Device>> {
   // Manual "Register this device" action. Returns null on success, or a
   // human-readable message on failure.
   Future<String?> registerCurrent() async {
-    final model = DeviceInfoService.model;
-    if (model.isEmpty) {
-      return 'Could not read this device model';
+    final model = _currentModel();
+    final existing = state.value ?? [];
+    // Don't create a second row for a device that is already in the list.
+    if (existing.any((d) => d.model == model)) {
+      return 'This device is already registered';
     }
     try {
       final created = await _api.register(
@@ -72,10 +81,12 @@ class DevicesNotifier extends AsyncNotifier<List<Device>> {
         platform: 'android',
         model: model,
       );
-      state = AsyncData([...(state.value ?? []), created]);
+      state = AsyncData([...existing, created]);
       return null;
     } on DioException catch (e) {
       if (e.response?.statusCode == 409) {
+        // Registered on the server but missing from our list: reload so it shows.
+        await refresh();
         return 'This device is already registered';
       }
       return _errorMessage(e) ?? 'Could not register this device';
