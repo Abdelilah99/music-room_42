@@ -110,11 +110,31 @@ func main() {
 	// WebSocket hub manager (shared across all real-time services)
 	hubManager := hub.NewHubManager()
 
+	// Event repositories and services
+	eventRepo := repository.NewEventRepository(pool)
+	eventSvc := service.NewEventService(eventRepo)
+	eventHandler := handler.NewEventHandler(eventSvc)
+
+	// Track repositories and services
+	trackRepo := repository.NewTrackRepository(pool)
+	trackSvc := service.NewTrackService(eventRepo, trackRepo)
+	trackHandler := handler.NewTrackHandler(trackSvc, hubManager)
+
+	// Device repositories and services
+	deviceRepo := repository.NewDeviceRepository(pool)
+	deviceSvc := service.NewDeviceService(deviceRepo)
+	deviceHandler := handler.NewDeviceHandler(deviceSvc)
+
+	// Delegation repositories and services
+	delegRepo := repository.NewDelegationRepository(pool)
+	delegSvc := service.NewDelegationService(deviceRepo, delegRepo)
+	delegHandler := handler.NewDelegationHandler(delegSvc)
+
 	allowedOrigins := os.Getenv("ALLOWED_ORIGINS")
 	globalLimit := getEnvOrDefault("RATE_LIMIT_GLOBAL", "100-M")
 	authLimit := getEnvOrDefault("RATE_LIMIT_AUTH", "10-M")
 
-	r := setupRouter(authHandler, jwtHandler, jwtService, profileHandler, friendHandler, musicHandler, googleHandler, hubManager, allowedOrigins, globalLimit, authLimit)
+	r := setupRouter(authHandler, jwtHandler, jwtService, profileHandler, friendHandler, musicHandler, googleHandler, hubManager, eventHandler, trackHandler, deviceHandler, delegHandler, allowedOrigins, globalLimit, authLimit)
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -137,6 +157,10 @@ func setupRouter(
 	musicHandler *handler.MusicHandler,
 	googleHandler *auth.GoogleHandler,
 	hubManager *hub.HubManager,
+	eventHandler *handler.EventHandler,
+	trackHandler *handler.TrackHandler,
+	deviceHandler *handler.DeviceHandler,
+	delegHandler *handler.DelegationHandler,
 	allowedOrigins string,
 	globalLimitRate string,
 	authLimitRate string,
@@ -206,11 +230,38 @@ func setupRouter(
 		}
 
 		ws := v1.Group("/ws")
-		ws.Use(jwtMiddleware.Authenticate())
+		ws.Use(jwtMiddleware.AuthenticateWS())
 		{
 			ws.GET("/:entityID", func(c *gin.Context) {
 				hub.ServeWS(hubManager, c.Param("entityID"), c)
 			})
+		}
+
+		devices := v1.Group("/devices")
+		devices.Use(jwtMiddleware.Authenticate())
+		{
+			devices.POST("", deviceHandler.Register)
+			devices.GET("", deviceHandler.List)
+			devices.GET("/delegated", delegHandler.ListDelegated)
+			devices.GET("/:id", deviceHandler.Get)
+			devices.DELETE("/:id", deviceHandler.Delete)
+			devices.POST("/:id/delegate", delegHandler.Grant)
+			devices.DELETE("/:id/delegate", delegHandler.Revoke)
+		}
+
+		events := v1.Group("/events")
+		events.Use(jwtMiddleware.Authenticate())
+		{
+			events.POST("", eventHandler.Create)
+			events.GET("", eventHandler.List)
+			events.GET("/:id", eventHandler.Get)
+			events.PUT("/:id", eventHandler.Update)
+			events.DELETE("/:id", eventHandler.Delete)
+			events.POST("/:id/invites", eventHandler.Invite)
+			events.POST("/:id/tracks", trackHandler.Suggest)
+			events.GET("/:id/queue", trackHandler.GetQueue)
+			events.POST("/:id/tracks/:trackId/vote", trackHandler.Vote)
+			events.DELETE("/:id/tracks/:trackId", trackHandler.DeleteTrack)
 		}
 	}
 

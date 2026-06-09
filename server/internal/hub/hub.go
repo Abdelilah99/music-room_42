@@ -2,11 +2,22 @@ package hub
 
 import (
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
 
 const sendBufferSize = 256
+
+const (
+	// writeWait is the maximum time allowed to write a message to a client.
+	writeWait = 10 * time.Second
+	// pongWait is how long we wait for a pong reply before treating the
+	// connection as dead.
+	pongWait = 60 * time.Second
+	// pingPeriod is how often we send a ping. Must be shorter than pongWait.
+	pingPeriod = (pongWait * 9) / 10
+)
 
 // Client is a single WebSocket connection attached to a Hub.
 type Client struct {
@@ -102,12 +113,31 @@ func (h *Hub) run(onEmpty func()) {
 	}
 }
 
-// writePump pumps messages from the client's send channel to the WebSocket.
+// writePump pumps messages from the client's send channel to the WebSocket
+// and sends periodic pings to keep idle connections alive.
 func (c *Client) writePump() {
-	defer c.conn.Close()
-	for msg := range c.send {
-		if err := c.conn.WriteMessage(websocket.TextMessage, msg); err != nil {
-			return
+	ticker := time.NewTicker(pingPeriod)
+	defer func() {
+		ticker.Stop()
+		c.conn.Close()
+	}()
+	for {
+		select {
+		case msg, ok := <-c.send:
+			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if !ok {
+				// Hub closed the channel: tell the client we are done.
+				c.conn.WriteMessage(websocket.CloseMessage, []byte{})
+				return
+			}
+			if err := c.conn.WriteMessage(websocket.TextMessage, msg); err != nil {
+				return
+			}
+		case <-ticker.C:
+			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				return
+			}
 		}
 	}
 }
@@ -124,6 +154,12 @@ func (c *Client) readPump() {
 		}
 		c.conn.Close()
 	}()
+	// Reset the read deadline on every pong so a live connection stays open.
+	c.conn.SetReadDeadline(time.Now().Add(pongWait))
+	c.conn.SetPongHandler(func(string) error {
+		c.conn.SetReadDeadline(time.Now().Add(pongWait))
+		return nil
+	})
 	for {
 		_, msg, err := c.conn.ReadMessage()
 		if err != nil {

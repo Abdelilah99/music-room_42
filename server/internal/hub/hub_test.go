@@ -160,6 +160,57 @@ func TestSlowClientEvictionCleansUpHub(t *testing.T) {
 	t.Fatalf("hub not cleaned up after slow-client eviction; manager.Len()=%d", manager.Len())
 }
 
+// TestManagerBroadcastReachesClients verifies a server-originated broadcast
+// (HubManager.Broadcast) is delivered to every client in that entity's hub.
+func TestManagerBroadcastReachesClients(t *testing.T) {
+	manager := NewHubManager()
+
+	c1 := dialTestServer(t, manager, "room-mgr")
+	c2 := dialTestServer(t, manager, "room-mgr")
+	time.Sleep(50 * time.Millisecond)
+
+	want := []byte(`{"type":"queue_update","data":[]}`)
+	manager.Broadcast("room-mgr", want)
+
+	if got := recv(t, c1, time.Second); string(got) != string(want) {
+		t.Errorf("c1 got %q, want %q", got, want)
+	}
+	if got := recv(t, c2, time.Second); string(got) != string(want) {
+		t.Errorf("c2 got %q, want %q", got, want)
+	}
+}
+
+// TestManagerHasHub verifies HasHub reflects whether a hub exists for an entity.
+func TestManagerHasHub(t *testing.T) {
+	manager := NewHubManager()
+
+	if manager.HasHub("room-has") {
+		t.Error("expected no hub before any client connects")
+	}
+
+	dialTestServer(t, manager, "room-has")
+	time.Sleep(50 * time.Millisecond)
+
+	if !manager.HasHub("room-has") {
+		t.Error("expected a hub once a client is connected")
+	}
+	if manager.HasHub("other-room") {
+		t.Error("did not expect a hub for an entity with no clients")
+	}
+}
+
+// TestManagerBroadcastToMissingHubIsNoop verifies that broadcasting to an
+// entity with no connected clients neither panics nor creates an idle hub.
+func TestManagerBroadcastToMissingHubIsNoop(t *testing.T) {
+	manager := NewHubManager()
+
+	manager.Broadcast("nobody-here", []byte("ignored"))
+
+	if manager.Len() != 0 {
+		t.Fatalf("broadcast to a missing hub created a hub; manager.Len()=%d", manager.Len())
+	}
+}
+
 // TestClientsInDifferentHubsAreIsolated verifies that two entity IDs produce
 // separate hubs and messages do not leak between rooms.
 func TestClientsInDifferentHubsAreIsolated(t *testing.T) {
