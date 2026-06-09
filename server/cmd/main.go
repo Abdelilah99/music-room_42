@@ -120,11 +120,16 @@ func main() {
 	trackSvc := service.NewTrackService(eventRepo, trackRepo)
 	trackHandler := handler.NewTrackHandler(trackSvc, hubManager)
 
+	// Device repositories and services
+	deviceRepo := repository.NewDeviceRepository(pool)
+	deviceSvc := service.NewDeviceService(deviceRepo)
+	deviceHandler := handler.NewDeviceHandler(deviceSvc)
+
 	allowedOrigins := os.Getenv("ALLOWED_ORIGINS")
 	globalLimit := getEnvOrDefault("RATE_LIMIT_GLOBAL", "100-M")
 	authLimit := getEnvOrDefault("RATE_LIMIT_AUTH", "10-M")
 
-	r := setupRouter(authHandler, jwtHandler, jwtService, profileHandler, friendHandler, musicHandler, googleHandler, hubManager, eventHandler, trackHandler, allowedOrigins, globalLimit, authLimit)
+	r := setupRouter(authHandler, jwtHandler, jwtService, profileHandler, friendHandler, musicHandler, googleHandler, hubManager, eventHandler, trackHandler, deviceHandler, allowedOrigins, globalLimit, authLimit)
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -149,6 +154,7 @@ func setupRouter(
 	hubManager *hub.HubManager,
 	eventHandler *handler.EventHandler,
 	trackHandler *handler.TrackHandler,
+	deviceHandler *handler.DeviceHandler,
 	allowedOrigins string,
 	globalLimitRate string,
 	authLimitRate string,
@@ -223,6 +229,15 @@ func setupRouter(
 			ws.GET("/:entityID", func(c *gin.Context) {
 				hub.ServeWS(hubManager, c.Param("entityID"), c)
 			})
+		}
+
+		devices := v1.Group("/devices")
+		devices.Use(jwtMiddleware.Authenticate())
+		{
+			devices.POST("", deviceHandler.Register)
+			devices.GET("", deviceHandler.List)
+			devices.GET("/:id", deviceHandler.Get)
+			devices.DELETE("/:id", deviceHandler.Delete)
 		}
 
 		events := v1.Group("/events")
