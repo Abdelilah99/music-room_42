@@ -12,6 +12,7 @@ import 'package:music_room/features/profile/friends_screen.dart';
 import 'package:music_room/features/profile/profile_screen.dart';
 import 'package:music_room/features/profile/user_profile_screen.dart';
 import 'package:music_room/features/track_vote/create_event_screen.dart';
+import 'package:music_room/features/track_vote/event_detail_screen.dart';
 import 'package:music_room/features/track_vote/event_list_screen.dart';
 
 // ── Router provider ──────────────────────────────────────────────────────────
@@ -57,14 +58,6 @@ final routerProvider = Provider<GoRouter>((ref) {
                 builder: (_, _) => const CreateEventScreen(),
               ),
             ],
-          ),
-          GoRoute(
-            // Placeholder until #30 (event detail screen) lands; it will
-            // replace this with the real EventDetailScreen at the same path.
-            path: '/events/:id',
-            builder: (_, state) => _EventDetailPlaceholder(
-              eventId: state.pathParameters['id']!,
-            ),
           ),
           GoRoute(
             path: '/events/:id',
@@ -132,36 +125,6 @@ class _RouterNotifier extends ChangeNotifier {
     if (status == AuthStatus.unauthenticated && !isAuthRoute) return '/login';
     if (status == AuthStatus.authenticated && isAuthRoute) return '/vote';
     return null;
-  }
-}
-
-// ── Temporary event detail placeholder (replaced by #30) ─────────────────────
-
-class _EventDetailPlaceholder extends StatelessWidget {
-  const _EventDetailPlaceholder({required this.eventId});
-
-  final String eventId;
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Event')),
-      body: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.event_available_outlined, size: 56),
-              const SizedBox(height: 16),
-              Text('Event $eventId', textAlign: TextAlign.center),
-              const SizedBox(height: 8),
-              const Text('Detail screen coming soon'),
-            ],
-          ),
-        ),
-      ),
-    );
   }
 }
 
