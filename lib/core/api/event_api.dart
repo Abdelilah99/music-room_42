@@ -18,8 +18,7 @@ class EventApi {
         : (raw as Map<String, dynamic>)['tracks'] as List<dynamic>? ?? [];
     return list
         .map((e) => QueueTrack.fromJson(e as Map<String, dynamic>))
-        .toList()
-      ..sort((a, b) => b.votes.compareTo(a.votes));
+        .toList();
   }
 
   /// Throws [DioException] with status 409 when the user has already voted.

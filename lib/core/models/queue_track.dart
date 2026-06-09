@@ -13,9 +13,9 @@ class QueueTrack {
 
   factory QueueTrack.fromJson(Map<String, dynamic> json) => QueueTrack(
         id: json['id'] as String,
-        name: json['name'] as String,
+        name: json['title'] as String,
         artist: json['artist'] as String,
-        votes: (json['votes'] as num).toInt(),
+        votes: (json['vote_count'] as num).toInt(),
       );
 
   QueueTrack withVotes(int v) =>
