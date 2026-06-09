@@ -7,6 +7,7 @@ import 'package:music_room/features/auth/login_screen.dart';
 import 'package:music_room/features/auth/register_screen.dart';
 import 'package:music_room/features/auth/verify_notice_screen.dart';
 import 'package:music_room/features/delegation/delegation_screen.dart';
+import 'package:music_room/features/devices/my_devices_screen.dart';
 import 'package:music_room/features/playlist_editor/playlist_editor_screen.dart';
 import 'package:music_room/features/profile/friends_screen.dart';
 import 'package:music_room/features/profile/profile_screen.dart';
@@ -65,6 +66,10 @@ final routerProvider = Provider<GoRouter>((ref) {
             builder: (_, state) => _EventDetailPlaceholder(
               eventId: state.pathParameters['id']!,
             ),
+          ),
+          GoRoute(
+            path: '/devices',
+            builder: (_, _) => const MyDevicesScreen(),
           ),
           GoRoute(
             path: '/delegation',
@@ -168,6 +173,7 @@ class AppShell extends StatelessWidget {
 
   static const _tabs = [
     (icon: Icons.how_to_vote_outlined, label: 'Track Vote', path: '/vote'),
+    (icon: Icons.devices_outlined, label: 'Devices', path: '/devices'),
     (icon: Icons.swap_horiz_outlined, label: 'Delegation', path: '/delegation'),
     (icon: Icons.queue_music_outlined, label: 'Playlist', path: '/playlist'),
     (icon: Icons.person_outline, label: 'Profile', path: '/profile'),
