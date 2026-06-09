@@ -125,11 +125,16 @@ func main() {
 	deviceSvc := service.NewDeviceService(deviceRepo)
 	deviceHandler := handler.NewDeviceHandler(deviceSvc)
 
+	// Delegation repositories and services
+	delegRepo := repository.NewDelegationRepository(pool)
+	delegSvc := service.NewDelegationService(deviceRepo, delegRepo)
+	delegHandler := handler.NewDelegationHandler(delegSvc)
+
 	allowedOrigins := os.Getenv("ALLOWED_ORIGINS")
 	globalLimit := getEnvOrDefault("RATE_LIMIT_GLOBAL", "100-M")
 	authLimit := getEnvOrDefault("RATE_LIMIT_AUTH", "10-M")
 
-	r := setupRouter(authHandler, jwtHandler, jwtService, profileHandler, friendHandler, musicHandler, googleHandler, hubManager, eventHandler, trackHandler, deviceHandler, allowedOrigins, globalLimit, authLimit)
+	r := setupRouter(authHandler, jwtHandler, jwtService, profileHandler, friendHandler, musicHandler, googleHandler, hubManager, eventHandler, trackHandler, deviceHandler, delegHandler, allowedOrigins, globalLimit, authLimit)
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -155,6 +160,7 @@ func setupRouter(
 	eventHandler *handler.EventHandler,
 	trackHandler *handler.TrackHandler,
 	deviceHandler *handler.DeviceHandler,
+	delegHandler *handler.DelegationHandler,
 	allowedOrigins string,
 	globalLimitRate string,
 	authLimitRate string,
@@ -236,8 +242,11 @@ func setupRouter(
 		{
 			devices.POST("", deviceHandler.Register)
 			devices.GET("", deviceHandler.List)
+			devices.GET("/delegated", delegHandler.ListDelegated)
 			devices.GET("/:id", deviceHandler.Get)
 			devices.DELETE("/:id", deviceHandler.Delete)
+			devices.POST("/:id/delegate", delegHandler.Grant)
+			devices.DELETE("/:id/delegate", delegHandler.Revoke)
 		}
 
 		events := v1.Group("/events")
