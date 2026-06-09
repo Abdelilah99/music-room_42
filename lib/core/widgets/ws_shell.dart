@@ -11,12 +11,14 @@ class WsShell extends StatelessWidget {
     required this.state,
     required this.onRetry,
     required this.child,
+    this.floatingActionButton,
   });
 
   final String title;
   final WsConnectionState state;
   final VoidCallback onRetry;
   final Widget child;
+  final Widget? floatingActionButton;
 
   @override
   Widget build(BuildContext context) {
@@ -34,6 +36,8 @@ class WsShell extends StatelessWidget {
         WsConnectionState.error => _ErrorView(onRetry: onRetry),
         _ => child,
       },
+      floatingActionButton:
+          state == WsConnectionState.error ? null : floatingActionButton,
     );
   }
 }

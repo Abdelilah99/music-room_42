@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:music_room/core/api/api_client.dart';
 import 'package:music_room/core/models/event.dart';
+import 'package:music_room/core/models/queue_track.dart';
 
 class EventsApi {
   final ApiClient _client;
@@ -46,6 +47,35 @@ class EventsApi {
     };
     final res = await _client.dio.post('/api/v1/events', data: body);
     return Event.fromJson(res.data as Map<String, dynamic>);
+  }
+  // GET /events/:id/queue -> array or {"tracks": [...]}
+  Future<List<QueueTrack>> getQueue(String eventId) async {
+    final res = await _client.dio.get('/api/v1/events/$eventId/queue');
+    final raw = res.data;
+    final list = raw is List
+        ? raw
+        : (raw as Map<String, dynamic>)['tracks'] as List<dynamic>? ?? [];
+    return list
+        .map((e) => QueueTrack.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  // POST /events/:id/tracks -> 201 (track added) | 409 (already queued)
+  Future<void> suggestTrack(
+    String eventId, {
+    required String externalId,
+    required String title,
+    required String artist,
+  }) async {
+    await _client.dio.post(
+      '/api/v1/events/$eventId/tracks',
+      data: {'external_id': externalId, 'title': title, 'artist': artist},
+    );
+  }
+
+  // POST /events/:id/tracks/:trackId/vote -> 200 | 409 (already voted)
+  Future<void> vote(String eventId, String trackId) async {
+    await _client.dio.post('/api/v1/events/$eventId/tracks/$trackId/vote');
   }
 }
 
