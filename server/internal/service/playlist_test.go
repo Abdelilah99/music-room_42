@@ -1,0 +1,284 @@
+package service_test
+
+import (
+	"context"
+	"errors"
+	"testing"
+	"time"
+
+	"music-room/internal/model"
+	"music-room/internal/service"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+)
+
+// --- mock repository ---
+
+type mockPlaylistRepo struct {
+	createFn        func(ctx context.Context, ownerID uuid.UUID, req model.CreatePlaylistRequest) (*model.Playlist, error)
+	listFn          func(ctx context.Context, callerID uuid.UUID, f model.PlaylistListFilter) ([]model.Playlist, error)
+	getAccessibleFn func(ctx context.Context, playlistID, callerID uuid.UUID) (*model.Playlist, error)
+	getByIDOwnerFn  func(ctx context.Context, playlistID, ownerID uuid.UUID) (*model.Playlist, error)
+	updateFn        func(ctx context.Context, playlistID uuid.UUID, req model.UpdatePlaylistRequest) (*model.Playlist, error)
+	deleteFn        func(ctx context.Context, playlistID uuid.UUID) error
+	addInviteFn     func(ctx context.Context, playlistID, userID uuid.UUID) error
+	listTracksFn    func(ctx context.Context, playlistID uuid.UUID) ([]model.PlaylistTrack, error)
+}
+
+func (m *mockPlaylistRepo) Create(ctx context.Context, ownerID uuid.UUID, req model.CreatePlaylistRequest) (*model.Playlist, error) {
+	return m.createFn(ctx, ownerID, req)
+}
+func (m *mockPlaylistRepo) List(ctx context.Context, callerID uuid.UUID, f model.PlaylistListFilter) ([]model.Playlist, error) {
+	return m.listFn(ctx, callerID, f)
+}
+func (m *mockPlaylistRepo) GetAccessible(ctx context.Context, playlistID, callerID uuid.UUID) (*model.Playlist, error) {
+	return m.getAccessibleFn(ctx, playlistID, callerID)
+}
+func (m *mockPlaylistRepo) GetByIDForOwner(ctx context.Context, playlistID, ownerID uuid.UUID) (*model.Playlist, error) {
+	return m.getByIDOwnerFn(ctx, playlistID, ownerID)
+}
+func (m *mockPlaylistRepo) Update(ctx context.Context, playlistID uuid.UUID, req model.UpdatePlaylistRequest) (*model.Playlist, error) {
+	return m.updateFn(ctx, playlistID, req)
+}
+func (m *mockPlaylistRepo) Delete(ctx context.Context, playlistID uuid.UUID) error {
+	return m.deleteFn(ctx, playlistID)
+}
+func (m *mockPlaylistRepo) AddInvite(ctx context.Context, playlistID, userID uuid.UUID) error {
+	return m.addInviteFn(ctx, playlistID, userID)
+}
+func (m *mockPlaylistRepo) ListTracks(ctx context.Context, playlistID uuid.UUID) ([]model.PlaylistTrack, error) {
+	if m.listTracksFn != nil {
+		return m.listTracksFn(ctx, playlistID)
+	}
+	return nil, nil
+}
+
+// --- helpers ---
+
+func newPlaylist(ownerID uuid.UUID) *model.Playlist {
+	return &model.Playlist{
+		ID:         uuid.New(),
+		OwnerID:    ownerID,
+		Name:       "Test Playlist",
+		Visibility: "public",
+		License:    0,
+		CreatedAt:  time.Now(),
+	}
+}
+
+// --- tests ---
+
+func TestPlaylistService_Create(t *testing.T) {
+	ownerID := uuid.New()
+	want := newPlaylist(ownerID)
+
+	repo := &mockPlaylistRepo{
+		createFn: func(_ context.Context, id uuid.UUID, _ model.CreatePlaylistRequest) (*model.Playlist, error) {
+			if id != ownerID {
+				t.Errorf("expected ownerID %s, got %s", ownerID, id)
+			}
+			return want, nil
+		},
+	}
+
+	svc := service.NewPlaylistService(repo)
+	got, err := svc.Create(context.Background(), ownerID, model.CreatePlaylistRequest{Name: "Test Playlist", Visibility: "public"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.ID != want.ID {
+		t.Errorf("expected playlist ID %s, got %s", want.ID, got.ID)
+	}
+}
+
+func TestPlaylistService_Get_Accessible_IncludesTracks(t *testing.T) {
+	ownerID := uuid.New()
+	callerID := uuid.New()
+	want := newPlaylist(ownerID)
+	track := model.PlaylistTrack{ID: uuid.New(), PlaylistID: want.ID, Title: "Song", Artist: "Artist", Position: 1}
+
+	repo := &mockPlaylistRepo{
+		getAccessibleFn: func(_ context.Context, _, cID uuid.UUID) (*model.Playlist, error) {
+			if cID != callerID {
+				t.Errorf("expected callerID %s, got %s", callerID, cID)
+			}
+			return want, nil
+		},
+		listTracksFn: func(_ context.Context, pID uuid.UUID) ([]model.PlaylistTrack, error) {
+			if pID != want.ID {
+				t.Errorf("expected playlistID %s, got %s", want.ID, pID)
+			}
+			return []model.PlaylistTrack{track}, nil
+		},
+	}
+
+	svc := service.NewPlaylistService(repo)
+	got, err := svc.Get(context.Background(), want.ID, callerID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.ID != want.ID {
+		t.Errorf("expected playlist ID %s, got %s", want.ID, got.ID)
+	}
+	if len(got.Tracks) != 1 || got.Tracks[0].ID != track.ID {
+		t.Errorf("expected one track %s, got %+v", track.ID, got.Tracks)
+	}
+}
+
+func TestPlaylistService_Get_NoTracks_ReturnsEmptySlice(t *testing.T) {
+	want := newPlaylist(uuid.New())
+
+	repo := &mockPlaylistRepo{
+		getAccessibleFn: func(_ context.Context, _, _ uuid.UUID) (*model.Playlist, error) {
+			return want, nil
+		},
+		listTracksFn: func(_ context.Context, _ uuid.UUID) ([]model.PlaylistTrack, error) {
+			return nil, nil
+		},
+	}
+
+	svc := service.NewPlaylistService(repo)
+	got, err := svc.Get(context.Background(), want.ID, uuid.New())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.Tracks == nil {
+		t.Error("expected tracks to be a non-nil empty slice")
+	}
+}
+
+func TestPlaylistService_Get_PrivateNotInvited_Returns404(t *testing.T) {
+	repo := &mockPlaylistRepo{
+		getAccessibleFn: func(_ context.Context, _, _ uuid.UUID) (*model.Playlist, error) {
+			return nil, pgx.ErrNoRows
+		},
+	}
+
+	svc := service.NewPlaylistService(repo)
+	_, err := svc.Get(context.Background(), uuid.New(), uuid.New())
+	if !errors.Is(err, service.ErrPlaylistNotFound) {
+		t.Errorf("expected ErrPlaylistNotFound, got %v", err)
+	}
+}
+
+func TestPlaylistService_Update_NotOwner_Returns404(t *testing.T) {
+	repo := &mockPlaylistRepo{
+		getByIDOwnerFn: func(_ context.Context, _, _ uuid.UUID) (*model.Playlist, error) {
+			return nil, pgx.ErrNoRows
+		},
+	}
+
+	svc := service.NewPlaylistService(repo)
+	_, err := svc.Update(context.Background(), uuid.New(), uuid.New(), model.UpdatePlaylistRequest{})
+	if !errors.Is(err, service.ErrPlaylistNotFound) {
+		t.Errorf("expected ErrPlaylistNotFound, got %v", err)
+	}
+}
+
+func TestPlaylistService_Delete_Owner(t *testing.T) {
+	ownerID := uuid.New()
+	playlistID := uuid.New()
+	deleted := false
+
+	repo := &mockPlaylistRepo{
+		getByIDOwnerFn: func(_ context.Context, pID, oID uuid.UUID) (*model.Playlist, error) {
+			if pID != playlistID || oID != ownerID {
+				return nil, pgx.ErrNoRows
+			}
+			return newPlaylist(ownerID), nil
+		},
+		deleteFn: func(_ context.Context, _ uuid.UUID) error {
+			deleted = true
+			return nil
+		},
+	}
+
+	svc := service.NewPlaylistService(repo)
+	if err := svc.Delete(context.Background(), playlistID, ownerID); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !deleted {
+		t.Error("expected Delete to be called on repository")
+	}
+}
+
+func TestPlaylistService_Delete_NotOwner_Returns404(t *testing.T) {
+	repo := &mockPlaylistRepo{
+		getByIDOwnerFn: func(_ context.Context, _, _ uuid.UUID) (*model.Playlist, error) {
+			return nil, pgx.ErrNoRows
+		},
+	}
+
+	svc := service.NewPlaylistService(repo)
+	err := svc.Delete(context.Background(), uuid.New(), uuid.New())
+	if !errors.Is(err, service.ErrPlaylistNotFound) {
+		t.Errorf("expected ErrPlaylistNotFound, got %v", err)
+	}
+}
+
+func TestPlaylistService_Invite_Owner(t *testing.T) {
+	ownerID := uuid.New()
+	playlistID := uuid.New()
+	targetID := uuid.New()
+	invited := false
+
+	repo := &mockPlaylistRepo{
+		getByIDOwnerFn: func(_ context.Context, pID, oID uuid.UUID) (*model.Playlist, error) {
+			if pID != playlistID || oID != ownerID {
+				return nil, pgx.ErrNoRows
+			}
+			return newPlaylist(ownerID), nil
+		},
+		addInviteFn: func(_ context.Context, pID, uID uuid.UUID) error {
+			if pID != playlistID || uID != targetID {
+				t.Errorf("unexpected invite params: playlist=%s user=%s", pID, uID)
+			}
+			invited = true
+			return nil
+		},
+	}
+
+	svc := service.NewPlaylistService(repo)
+	if err := svc.Invite(context.Background(), playlistID, ownerID, targetID); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !invited {
+		t.Error("expected AddInvite to be called on repository")
+	}
+}
+
+func TestPlaylistService_Invite_NotOwner_Returns404(t *testing.T) {
+	repo := &mockPlaylistRepo{
+		getByIDOwnerFn: func(_ context.Context, _, _ uuid.UUID) (*model.Playlist, error) {
+			return nil, pgx.ErrNoRows
+		},
+	}
+
+	svc := service.NewPlaylistService(repo)
+	err := svc.Invite(context.Background(), uuid.New(), uuid.New(), uuid.New())
+	if !errors.Is(err, service.ErrPlaylistNotFound) {
+		t.Errorf("expected ErrPlaylistNotFound, got %v", err)
+	}
+}
+
+func TestPlaylistService_Invite_NonExistentUser_Returns404(t *testing.T) {
+	ownerID := uuid.New()
+	fkErr := &pgconn.PgError{Code: "23503"}
+
+	repo := &mockPlaylistRepo{
+		getByIDOwnerFn: func(_ context.Context, _, _ uuid.UUID) (*model.Playlist, error) {
+			return newPlaylist(ownerID), nil
+		},
+		addInviteFn: func(_ context.Context, _, _ uuid.UUID) error {
+			return fkErr
+		},
+	}
+
+	svc := service.NewPlaylistService(repo)
+	err := svc.Invite(context.Background(), uuid.New(), ownerID, uuid.New())
+	if !errors.Is(err, service.ErrUserNotFound) {
+		t.Errorf("expected ErrUserNotFound, got %v", err)
+	}
+}
