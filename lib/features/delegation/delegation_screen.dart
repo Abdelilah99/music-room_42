@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
@@ -26,8 +27,8 @@ class Device {
       id: json['id']?.toString() ?? '',
       name: json['name']?.toString() ?? 'Unknown Device',
       model: json['model']?.toString() ?? 'Generic Model',
-      delegatedToName: json['delegated_user_name']?.toString(), // Alignment with backend fields
-      delegatedToId: json['delegated_friend_id']?.toString(),     // Alignment with backend fields
+      delegatedToName: json['delegated_user_name']?.toString(), 
+      delegatedToId: json['delegated_friend_id']?.toString(),     
     );
   }
 }
@@ -52,23 +53,20 @@ class DelegatedDevice {
   }
 }
 
+
 class MyDevicesNotifier extends AutoDisposeAsyncNotifier<List<Device>> {
   Dio get _dio => ref.read(apiClientProvider).dio;
 
   @override
-  Future<List<Device>> build() async {
+  FutureOr<List<Device>> build() {
     return _fetchDevices();
   }
 
   Future<List<Device>> _fetchDevices() async {
-    try {
-      final response = await _dio.get('/api/v1/devices');
-      return (response.data as List)
-          .map((item) => Device.fromJson(item as Map<String, dynamic>))
-          .toList();
-    } catch (err) {
-      rethrow;
-    }
+    final response = await _dio.get('/api/v1/devices');
+    return (response.data as List)
+        .map((item) => Device.fromJson(item as Map<String, dynamic>))
+        .toList();
   }
 
   Future<void> refresh() async {
@@ -104,19 +102,15 @@ class DelegatedToMeNotifier extends AutoDisposeAsyncNotifier<List<DelegatedDevic
   Dio get _dio => ref.read(apiClientProvider).dio;
 
   @override
-  Future<List<DelegatedDevice>> build() async {
+  FutureOr<List<DelegatedDevice>> build() {
     return _fetchDelegated();
   }
 
   Future<List<DelegatedDevice>> _fetchDelegated() async {
-    try {
-      final response = await _dio.get('/api/v1/devices/delegated');
-      return (response.data as List)
-          .map((item) => DelegatedDevice.fromJson(item as Map<String, dynamic>))
-          .toList();
-    } catch (err) {
-      rethrow;
-    }
+    final response = await _dio.get('/api/v1/devices/delegated');
+    return (response.data as List)
+        .map((item) => DelegatedDevice.fromJson(item as Map<String, dynamic>))
+        .toList();
   }
 
   Future<void> refresh() async {
@@ -125,6 +119,7 @@ class DelegatedToMeNotifier extends AutoDisposeAsyncNotifier<List<DelegatedDevic
   }
 }
 
+// Defining the correct provider instances matching your Riverpod version constraints
 final myDevicesProvider = AsyncNotifierProvider.autoDispose<MyDevicesNotifier, List<Device>>(MyDevicesNotifier.new);
 final delegatedToMeProvider = AsyncNotifierProvider.autoDispose<DelegatedToMeNotifier, List<DelegatedDevice>>(DelegatedToMeNotifier.new);
 
@@ -141,7 +136,7 @@ class DelegationScreen extends ConsumerWidget {
     return DefaultTabController(
       length: 2,
       child: WsShell(
-        title: 'Delegation', // Explicit parameter title integration preserved
+        title: 'Delegation', 
         state: connState,
         onRetry: () => ref.read(wsProvider(_hubPath).notifier).reconnect(),
         child: Column(
