@@ -67,24 +67,32 @@ class DeviceControlNotifier extends Notifier<PlaybackState> {
     state = state.copyWith(volume: value.clamp(0, 100));
   }
 
-  // Sends a command to the device. Optimistically applies it, then POSTs.
-  // Returns null on success or a human-readable message on failure. A second
-  // call while one is in flight is ignored so a double tap cannot double-send.
-  Future<String?> sendCommand(String action, {int? value}) async {
+  // Sends a command to the device. Returns null on success or a human-readable
+  // message on failure. A second call while one is in flight is ignored so a
+  // double tap cannot double-send.
+  //
+  // The owner does NOT apply the command locally here: the server broadcasts it
+  // back over the device WebSocket and [applyRemote] applies it, which is the
+  // single source of truth. Applying it here too would double-count a relative
+  // action like "next". A caller with no socket (a delegate) passes
+  // applyLocally: true so its controls still reflect what it sent.
+  Future<String?> sendCommand(
+    String action, {
+    int? value,
+    bool applyLocally = false,
+  }) async {
     if (state.inFlight) return null;
 
-    final previous = state;
     state = state.copyWith(inFlight: true);
-    _apply(action, value);
-
     try {
       await ref
           .read(devicesApiProvider)
           .sendCommand(_deviceId, action: action, value: value);
+      if (applyLocally) _apply(action, value);
       state = state.copyWith(inFlight: false);
       return null;
     } on DioException catch (e) {
-      state = previous; // revert the optimistic change
+      state = state.copyWith(inFlight: false);
       final data = e.response?.data;
       final msg = data is Map ? data['error'] as String? : null;
       return msg ?? 'Could not send the command';

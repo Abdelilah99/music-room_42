@@ -76,7 +76,7 @@ class _DeviceDetailScreenState extends ConsumerState<DeviceDetailScreen> {
   Future<void> _send(String action, {int? value}) async {
     final error = await ref
         .read(deviceControlProvider(widget.deviceId).notifier)
-        .sendCommand(action, value: value);
+        .sendCommand(action, value: value, applyLocally: !widget.isOwner);
     if (!mounted || error == null) return;
     AppSnackBar.show(context, message: error, type: SnackBarType.error);
   }
