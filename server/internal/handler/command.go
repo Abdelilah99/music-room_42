@@ -20,8 +20,8 @@ var validActions = map[string]bool{
 }
 
 type CommandHandler struct {
-	deviceSvc   service.DeviceService
-	hubManager  *hub.HubManager
+	deviceSvc  service.DeviceService
+	hubManager *hub.HubManager
 }
 
 func NewCommandHandler(deviceSvc service.DeviceService, hubManager *hub.HubManager) *CommandHandler {
