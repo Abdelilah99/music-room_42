@@ -6,7 +6,9 @@ import 'package:music_room/features/auth/forgot_password_screen.dart';
 import 'package:music_room/features/auth/login_screen.dart';
 import 'package:music_room/features/auth/register_screen.dart';
 import 'package:music_room/features/auth/verify_notice_screen.dart';
+import 'package:music_room/core/models/device.dart';
 import 'package:music_room/features/delegation/delegation_screen.dart';
+import 'package:music_room/features/devices/device_detail_screen.dart';
 import 'package:music_room/features/devices/my_devices_screen.dart';
 import 'package:music_room/features/playlist_editor/playlist_editor_screen.dart';
 import 'package:music_room/features/profile/friends_screen.dart';
@@ -70,6 +72,15 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/devices',
             builder: (_, _) => const MyDevicesScreen(),
+            routes: [
+              GoRoute(
+                path: ':id',
+                builder: (_, state) => DeviceDetailScreen(
+                  deviceId: state.pathParameters['id']!,
+                  device: state.extra is Device ? state.extra as Device : null,
+                ),
+              ),
+            ],
           ),
           GoRoute(
             path: '/delegation',
