@@ -5,17 +5,26 @@ import 'package:music_room/features/devices/devices_provider.dart';
 import 'package:music_room/shared/widgets/snackbar_helper.dart';
 import 'package:music_room/shared/widgets/state_widgets.dart';
 
-class MyDevicesScreen extends ConsumerWidget {
+class MyDevicesScreen extends ConsumerStatefulWidget {
   const MyDevicesScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<MyDevicesScreen> createState() => _MyDevicesScreenState();
+}
+
+class _MyDevicesScreenState extends ConsumerState<MyDevicesScreen> {
+  // Ids of devices with a delete request in flight, so the row's button is
+  // disabled and a second tap cannot fire a duplicate DELETE.
+  final Set<String> _deleting = {};
+
+  @override
+  Widget build(BuildContext context) {
     final devicesAsync = ref.watch(devicesProvider);
 
     return Scaffold(
       appBar: AppBar(title: const Text('My Devices')),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _registerCurrent(context, ref),
+        onPressed: _registerCurrent,
         icon: const Icon(Icons.add),
         label: const Text('Register this device'),
       ),
@@ -47,7 +56,8 @@ class MyDevicesScreen extends ConsumerWidget {
                   separatorBuilder: (_, _) => const SizedBox(height: 8),
                   itemBuilder: (_, i) => _DeviceCard(
                     device: devices[i],
-                    onDelete: () => _confirmDelete(context, ref, devices[i]),
+                    isDeleting: _deleting.contains(devices[i].id),
+                    onDelete: () => _confirmDelete(devices[i]),
                   ),
                 ),
         ),
@@ -55,9 +65,9 @@ class MyDevicesScreen extends ConsumerWidget {
     );
   }
 
-  Future<void> _registerCurrent(BuildContext context, WidgetRef ref) async {
+  Future<void> _registerCurrent() async {
     final error = await ref.read(devicesProvider.notifier).registerCurrent();
-    if (!context.mounted) return;
+    if (!mounted) return;
     if (error == null) {
       AppSnackBar.show(context,
           message: 'Device registered', type: SnackBarType.success);
@@ -66,8 +76,10 @@ class MyDevicesScreen extends ConsumerWidget {
     }
   }
 
-  Future<void> _confirmDelete(
-      BuildContext context, WidgetRef ref, Device device) async {
+  Future<void> _confirmDelete(Device device) async {
+    // Ignore taps on a row that is already being deleted.
+    if (_deleting.contains(device.id)) return;
+
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -86,9 +98,12 @@ class MyDevicesScreen extends ConsumerWidget {
       ),
     );
     if (confirmed != true) return;
+    if (_deleting.contains(device.id)) return;
 
+    setState(() => _deleting.add(device.id));
     final error = await ref.read(devicesProvider.notifier).remove(device.id);
-    if (!context.mounted) return;
+    if (!mounted) return;
+    setState(() => _deleting.remove(device.id));
     if (error != null) {
       AppSnackBar.show(context, message: error, type: SnackBarType.error);
     }
@@ -96,9 +111,14 @@ class MyDevicesScreen extends ConsumerWidget {
 }
 
 class _DeviceCard extends StatelessWidget {
-  const _DeviceCard({required this.device, required this.onDelete});
+  const _DeviceCard({
+    required this.device,
+    required this.isDeleting,
+    required this.onDelete,
+  });
 
   final Device device;
+  final bool isDeleting;
   final VoidCallback onDelete;
 
   @override
@@ -146,11 +166,17 @@ class _DeviceCard extends StatelessWidget {
           ],
         ),
         isThreeLine: true,
-        trailing: IconButton(
-          icon: const Icon(Icons.delete_outline),
-          tooltip: 'Remove device',
-          onPressed: onDelete,
-        ),
+        trailing: isDeleting
+            ? const SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : IconButton(
+                icon: const Icon(Icons.delete_outline),
+                tooltip: 'Remove device',
+                onPressed: onDelete,
+              ),
       ),
     );
   }

@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart' show defaultTargetPlatform, TargetPlatform;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:music_room/core/api/devices_api.dart';
 import 'package:music_room/core/models/device.dart';
@@ -33,7 +34,7 @@ class DevicesNotifier extends AsyncNotifier<List<Device>> {
     try {
       final created = await _api.register(
         name: _currentDeviceName(),
-        platform: 'android',
+        platform: _currentPlatform(),
         model: model,
       );
       return [...devices, created];
@@ -41,6 +42,13 @@ class DevicesNotifier extends AsyncNotifier<List<Device>> {
       return devices;
     }
   }
+
+  // The platform string sent to the server. Derived from the running platform
+  // rather than hardcoded, so an iOS build does not register every device as
+  // android. defaultTargetPlatform is used instead of dart:io Platform so it
+  // never throws on non-io targets.
+  String _currentPlatform() =>
+      defaultTargetPlatform == TargetPlatform.iOS ? 'ios' : 'android';
 
   // A stable, non-blank identifier for the current device. The server keys
   // device uniqueness on `model`, so this must resolve to the same value on
@@ -78,7 +86,7 @@ class DevicesNotifier extends AsyncNotifier<List<Device>> {
     try {
       final created = await _api.register(
         name: _currentDeviceName(),
-        platform: 'android',
+        platform: _currentPlatform(),
         model: model,
       );
       state = AsyncData([...existing, created]);
@@ -98,12 +106,22 @@ class DevicesNotifier extends AsyncNotifier<List<Device>> {
   Future<String?> remove(String id) async {
     try {
       await _api.delete(id);
-      final current = state.value ?? [];
-      state = AsyncData(current.where((d) => d.id != id).toList());
+      _dropFromList(id);
       return null;
     } on DioException catch (e) {
+      // The device is already gone (e.g. a duplicate tap or a delete from
+      // another session). Treat it as success and make sure it leaves the list.
+      if (e.response?.statusCode == 404) {
+        _dropFromList(id);
+        return null;
+      }
       return _errorMessage(e) ?? 'Could not delete the device';
     }
+  }
+
+  void _dropFromList(String id) {
+    final current = state.value ?? [];
+    state = AsyncData(current.where((d) => d.id != id).toList());
   }
 
   String? _errorMessage(DioException e) {
