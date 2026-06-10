@@ -6,6 +6,9 @@ import 'package:music_room/core/api/web_socket_service.dart';
 import 'package:music_room/core/widgets/ws_shell.dart';
 import 'package:music_room/core/api/api_client.dart';
 
+// ==========================================================================
+// 1. DATA DOMAIN CLASSES
+// ==========================================================================
 
 class Device {
   final String id;
@@ -53,6 +56,9 @@ class DelegatedDevice {
   }
 }
 
+// ==========================================================================
+// 2. STATE NOTIFIERS MANAGING TRANSACTIONS (Fixed for Riverpod 3.x)
+// ==========================================================================
 
 class MyDevicesNotifier extends AutoDisposeAsyncNotifier<List<Device>> {
   Dio get _dio => ref.read(apiClientProvider).dio;
@@ -119,10 +125,12 @@ class DelegatedToMeNotifier extends AutoDisposeAsyncNotifier<List<DelegatedDevic
   }
 }
 
-// Defining the correct provider instances matching your Riverpod version constraints
 final myDevicesProvider = AsyncNotifierProvider.autoDispose<MyDevicesNotifier, List<Device>>(MyDevicesNotifier.new);
 final delegatedToMeProvider = AsyncNotifierProvider.autoDispose<DelegatedToMeNotifier, List<DelegatedDevice>>(DelegatedToMeNotifier.new);
 
+// ==========================================================================
+// 3. MAIN UI ROUTE TARGET WIDGET
+// ==========================================================================
 
 class DelegationScreen extends ConsumerWidget {
   const DelegationScreen({super.key});
@@ -165,6 +173,9 @@ class DelegationScreen extends ConsumerWidget {
   }
 }
 
+// ==========================================================================
+// 4. TAB COMPONENT LAYOUT CODES
+// ==========================================================================
 
 class MyDevicesTab extends ConsumerWidget {
   const MyDevicesTab({super.key});
