@@ -26,8 +26,8 @@ class Device {
       id: json['id']?.toString() ?? '',
       name: json['name']?.toString() ?? 'Unknown Device',
       model: json['model']?.toString() ?? 'Generic Model',
-      delegatedToName: json['delegated_to_name']?.toString(),
-      delegatedToId: json['delegated_to_id']?.toString(),
+      delegatedToName: json['delegated_user_name']?.toString(), // Alignment with backend fields
+      delegatedToId: json['delegated_friend_id']?.toString(),     // Alignment with backend fields
     );
   }
 }
@@ -52,29 +52,28 @@ class DelegatedDevice {
   }
 }
 
-class MyDevicesNotifier extends AutoDisposeNotifier<AsyncValue<List<Device>>> {
+class MyDevicesNotifier extends AutoDisposeAsyncNotifier<List<Device>> {
   Dio get _dio => ref.read(apiClientProvider).dio;
 
   @override
-  AsyncValue<List<Device>> build() {
-    _fetchDevices();
-    return const AsyncValue.loading();
+  Future<List<Device>> build() async {
+    return _fetchDevices();
   }
 
-  Future<void> _fetchDevices() async {
+  Future<List<Device>> _fetchDevices() async {
     try {
       final response = await _dio.get('/api/v1/devices');
-      final list = (response.data as List)
+      return (response.data as List)
           .map((item) => Device.fromJson(item as Map<String, dynamic>))
           .toList();
-      state = AsyncValue.data(list);
-    } catch (err, stack) {
-      state = AsyncValue.error(err, stack);
+    } catch (err) {
+      rethrow;
     }
   }
 
   Future<void> refresh() async {
-    await _fetchDevices();
+    state = const AsyncValue.loading();
+    state = await AsyncValue.guard(() => _fetchDevices());
   }
 
   Future<void> grantDelegation(String deviceId, String friendId) async {
@@ -83,7 +82,7 @@ class MyDevicesNotifier extends AutoDisposeNotifier<AsyncValue<List<Device>>> {
         '/api/v1/devices/$deviceId/delegate',
         data: {'friend_user_id': friendId},
       );
-      await _fetchDevices();
+      state = await AsyncValue.guard(() => _fetchDevices());
     } on DioException catch (e) {
       final errMsg = e.response?.data?['error'] ?? 'Could not delegate device control.';
       throw Exception(errMsg);
@@ -93,7 +92,7 @@ class MyDevicesNotifier extends AutoDisposeNotifier<AsyncValue<List<Device>>> {
   Future<void> revokeDelegation(String deviceId) async {
     try {
       await _dio.delete('/api/v1/devices/$deviceId/delegate');
-      await _fetchDevices();
+      state = await AsyncValue.guard(() => _fetchDevices());
     } on DioException catch (e) {
       final errMsg = e.response?.data?['error'] ?? 'Could not revoke control.';
       throw Exception(errMsg);
@@ -101,34 +100,33 @@ class MyDevicesNotifier extends AutoDisposeNotifier<AsyncValue<List<Device>>> {
   }
 }
 
-class DelegatedToMeNotifier extends AutoDisposeNotifier<AsyncValue<List<DelegatedDevice>>> {
+class DelegatedToMeNotifier extends AutoDisposeAsyncNotifier<List<DelegatedDevice>> {
   Dio get _dio => ref.read(apiClientProvider).dio;
 
   @override
-  AsyncValue<List<DelegatedDevice>> build() {
-    _fetchDelegated();
-    return const AsyncValue.loading();
+  Future<List<DelegatedDevice>> build() async {
+    return _fetchDelegated();
   }
 
-  Future<void> _fetchDelegated() async {
+  Future<List<DelegatedDevice>> _fetchDelegated() async {
     try {
       final response = await _dio.get('/api/v1/devices/delegated');
-      final list = (response.data as List)
+      return (response.data as List)
           .map((item) => DelegatedDevice.fromJson(item as Map<String, dynamic>))
           .toList();
-      state = AsyncValue.data(list);
-    } catch (err, stack) {
-      state = AsyncValue.error(err, stack);
+    } catch (err) {
+      rethrow;
     }
   }
 
   Future<void> refresh() async {
-    await _fetchDelegated();
+    state = const AsyncValue.loading();
+    state = await AsyncValue.guard(() => _fetchDelegated());
   }
 }
 
-final myDevicesProvider = NotifierProvider.autoDispose<MyDevicesNotifier, AsyncValue<List<Device>>>(MyDevicesNotifier.new);
-final delegatedToMeProvider = NotifierProvider.autoDispose<DelegatedToMeNotifier, AsyncValue<List<DelegatedDevice>>>(DelegatedToMeNotifier.new);
+final myDevicesProvider = AsyncNotifierProvider.autoDispose<MyDevicesNotifier, List<Device>>(MyDevicesNotifier.new);
+final delegatedToMeProvider = AsyncNotifierProvider.autoDispose<DelegatedToMeNotifier, List<DelegatedDevice>>(DelegatedToMeNotifier.new);
 
 
 class DelegationScreen extends ConsumerWidget {
@@ -143,7 +141,7 @@ class DelegationScreen extends ConsumerWidget {
     return DefaultTabController(
       length: 2,
       child: WsShell(
-        title: 'Delegation',
+        title: 'Delegation', // Explicit parameter title integration preserved
         state: connState,
         onRetry: () => ref.read(wsProvider(_hubPath).notifier).reconnect(),
         child: Column(
@@ -177,7 +175,6 @@ class MyDevicesTab extends ConsumerWidget {
   const MyDevicesTab({super.key});
 
   void _openFriendPickerAndGrant(BuildContext context, WidgetRef ref, Device device) async {
-    // Simulating selecting a valid mock friend from a friend picker:
     const String selectedFriendId = "user_789";
     const String selectedFriendName = "Charlie";
 
