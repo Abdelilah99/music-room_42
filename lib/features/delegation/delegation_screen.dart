@@ -5,62 +5,61 @@ import 'package:dio/dio.dart';
 import 'package:music_room/core/api/web_socket_service.dart';
 import 'package:music_room/core/widgets/ws_shell.dart';
 import 'package:music_room/core/api/api_client.dart';
+import 'package:music_room/features/friends/friend_picker.dart'; // Import prebuilt friend picker from Phase 2
 
-// ==========================================================================
-// 1. DATA DOMAIN CLASSES
-// ==========================================================================
 
 class Device {
   final String id;
   final String name;
   final String model;
-  final String? delegatedToName;
-  final String? delegatedToId;
+  final String? delegatedUserId;
+  final String? delegatedUserEmail;
 
   Device({
     required this.id,
     required this.name,
     required this.model,
-    this.delegatedToName,
-    this.delegatedToId,
+    this.delegatedUserId,
+    this.delegatedUserEmail,
   });
 
   factory Device.fromJson(Map<String, dynamic> json) {
+    // Unpack nested delegate properties matching the true backend model schema
+    final delegateJson = json['delegate'] as Map<String, dynamic>?;
     return Device(
       id: json['id']?.toString() ?? '',
       name: json['name']?.toString() ?? 'Unknown Device',
       model: json['model']?.toString() ?? 'Generic Model',
-      delegatedToName: json['delegated_user_name']?.toString(), 
-      delegatedToId: json['delegated_friend_id']?.toString(),     
+      delegatedUserId: delegateJson?['user_id']?.toString(),
+      delegatedUserEmail: delegateJson?['email']?.toString(),
     );
   }
 }
 
 class DelegatedDevice {
   final String id;
-  final String ownerName;
+  final String ownerEmail;
   final String deviceModel;
 
   DelegatedDevice({
     required this.id,
-    required this.ownerName,
+    required this.ownerEmail,
     required this.deviceModel,
   });
 
   factory DelegatedDevice.fromJson(Map<String, dynamic> json) {
+    // Unpack nested owner properties matching the true incoming backend schema
+    final ownerJson = json['owner'] as Map<String, dynamic>?;
     return DelegatedDevice(
       id: json['id']?.toString() ?? '',
-      ownerName: json['owner_name']?.toString() ?? 'Unknown Owner',
-      deviceModel: json['device_model']?.toString() ?? 'Generic Model',
+      ownerEmail: ownerJson?['email']?.toString() ?? 'Unknown Owner',
+      deviceModel: json['model']?.toString() ?? 'Generic Model',
     );
   }
 }
 
-// ==========================================================================
-// 2. STATE NOTIFIERS MANAGING TRANSACTIONS (Fixed for Riverpod 3.x)
-// ==========================================================================
 
-class MyDevicesNotifier extends AutoDisposeAsyncNotifier<List<Device>> {
+class MyDevicesNotifier extends AsyncNotifier<List<Device>> {
   Dio get _dio => ref.read(apiClientProvider).dio;
 
   @override
@@ -70,7 +69,9 @@ class MyDevicesNotifier extends AutoDisposeAsyncNotifier<List<Device>> {
 
   Future<List<Device>> _fetchDevices() async {
     final response = await _dio.get('/api/v1/devices');
-    return (response.data as List)
+    // Extract array payload securely from the top-level un-keyed 'devices' map response
+    final devicesData = response.data['devices'] as List? ?? [];
+    return devicesData
         .map((item) => Device.fromJson(item as Map<String, dynamic>))
         .toList();
   }
@@ -104,7 +105,7 @@ class MyDevicesNotifier extends AutoDisposeAsyncNotifier<List<Device>> {
   }
 }
 
-class DelegatedToMeNotifier extends AutoDisposeAsyncNotifier<List<DelegatedDevice>> {
+class DelegatedToMeNotifier extends AsyncNotifier<List<DelegatedDevice>> {
   Dio get _dio => ref.read(apiClientProvider).dio;
 
   @override
@@ -114,7 +115,9 @@ class DelegatedToMeNotifier extends AutoDisposeAsyncNotifier<List<DelegatedDevic
 
   Future<List<DelegatedDevice>> _fetchDelegated() async {
     final response = await _dio.get('/api/v1/devices/delegated');
-    return (response.data as List)
+    // Extract array payload securely from the top-level un-keyed 'devices' map response
+    final devicesData = response.data['devices'] as List? ?? [];
+    return devicesData
         .map((item) => DelegatedDevice.fromJson(item as Map<String, dynamic>))
         .toList();
   }
@@ -125,12 +128,10 @@ class DelegatedToMeNotifier extends AutoDisposeAsyncNotifier<List<DelegatedDevic
   }
 }
 
+// Instantiate with autoDispose parameters at provider bounds to handle lifecycles cleanly
 final myDevicesProvider = AsyncNotifierProvider.autoDispose<MyDevicesNotifier, List<Device>>(MyDevicesNotifier.new);
 final delegatedToMeProvider = AsyncNotifierProvider.autoDispose<DelegatedToMeNotifier, List<DelegatedDevice>>(DelegatedToMeNotifier.new);
 
-// ==========================================================================
-// 3. MAIN UI ROUTE TARGET WIDGET
-// ==========================================================================
 
 class DelegationScreen extends ConsumerWidget {
   const DelegationScreen({super.key});
@@ -144,15 +145,12 @@ class DelegationScreen extends ConsumerWidget {
     return DefaultTabController(
       length: 2,
       child: WsShell(
-        title: 'Delegation', 
+        title: 'Delegation',
         state: connState,
         onRetry: () => ref.read(wsProvider(_hubPath).notifier).reconnect(),
         child: Column(
           children: [
             const TabBar(
-              labelColor: Colors.blue,
-              unselectedLabelColor: Colors.grey,
-              indicatorColor: Colors.blue,
               tabs: [
                 Tab(icon: Icon(Icons.devices), text: 'My Devices'),
                 Tab(icon: Icon(Icons.assignment_ind), text: 'Delegated to Me'),
@@ -173,25 +171,28 @@ class DelegationScreen extends ConsumerWidget {
   }
 }
 
-// ==========================================================================
-// 4. TAB COMPONENT LAYOUT CODES
-// ==========================================================================
-
 class MyDevicesTab extends ConsumerWidget {
   const MyDevicesTab({super.key});
 
   void _openFriendPickerAndGrant(BuildContext context, WidgetRef ref, Device device) async {
-    const String selectedFriendId = "user_789";
-    const String selectedFriendName = "Charlie";
+    // Open your reusable Phase 2 friend picker component instead of hardcoding text properties
+    final selectedFriend = await showModalBottomSheet<Map<String, dynamic>>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => const FriendPicker(),
+    );
 
-    if (!context.mounted) return;
+    if (selectedFriend == null || !context.mounted) return;
 
-    if (device.delegatedToId != null) {
+    final String friendId = selectedFriend['id']?.toString() ?? '';
+    final String friendEmail = selectedFriend['email']?.toString() ?? 'Selected Friend';
+
+    if (device.delegatedUserId != null) {
       final confirmReplacement = await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
           title: const Text('Confirm Replacement'),
-          content: Text('This device is already delegated to ${device.delegatedToName}. Do you want to replace them with $selectedFriendName?'),
+          content: Text('This device is already delegated to ${device.delegatedUserEmail}. Do you want to replace them with $friendEmail?'),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, false),
@@ -209,16 +210,16 @@ class MyDevicesTab extends ConsumerWidget {
     }
 
     try {
-      await ref.read(myDevicesProvider.notifier).grantDelegation(device.id, selectedFriendId);
+      await ref.read(myDevicesProvider.notifier).grantDelegation(device.id, friendId);
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Control granted successfully to $selectedFriendName!')),
+          SnackBar(content: Text('Control granted successfully to $friendEmail!')),
         );
       }
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.toString().replaceAll('Exception: ', '')), backgroundColor: Colors.red),
+          SnackBar(content: Text(e.toString().replaceAll('Exception: ', '')), backgroundColor: Theme.of(context).colorScheme.error),
         );
       }
     }
@@ -234,7 +235,7 @@ class MyDevicesTab extends ConsumerWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Text('Failed to load your devices: $error', style: const TextStyle(color: Colors.red)),
+            Text('Failed to load your devices: $error'),
             const SizedBox(height: 12),
             ElevatedButton(
               onPressed: () => ref.read(myDevicesProvider.notifier).refresh(),
@@ -250,18 +251,15 @@ class MyDevicesTab extends ConsumerWidget {
           itemCount: devices.length,
           itemBuilder: (context, index) {
             final device = devices[index];
-            final isDelegated = device.delegatedToName != null;
+            final isDelegated = device.delegatedUserId != null;
 
             return Card(
               margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
               child: ListTile(
                 title: Text(device.name),
                 subtitle: Text(
-                  isDelegated ? 'Delegated to: ${device.delegatedToName}' : 'Status: Not Shared',
-                  style: TextStyle(
-                    color: isDelegated ? Colors.green : Colors.grey,
-                    fontWeight: FontWeight.bold,
-                  ),
+                  isDelegated ? 'Delegated to: ${device.delegatedUserEmail}' : 'Status: Not Shared',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
@@ -273,7 +271,7 @@ class MyDevicesTab extends ConsumerWidget {
                     if (isDelegated) ...[
                       const SizedBox(width: 8),
                       IconButton(
-                        icon: const Icon(Icons.remove_circle, color: Colors.red),
+                        icon: const Icon(Icons.remove_circle),
                         onPressed: () async {
                           try {
                             await ref.read(myDevicesProvider.notifier).revokeDelegation(device.id);
@@ -285,7 +283,7 @@ class MyDevicesTab extends ConsumerWidget {
                           } catch (e) {
                             if (context.mounted) {
                               ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text(e.toString()), backgroundColor: Colors.red),
+                                SnackBar(content: Text(e.toString()), backgroundColor: Theme.of(context).colorScheme.error),
                               );
                             }
                           }
@@ -316,7 +314,7 @@ class DelegatedToMeTab extends ConsumerWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Text('Failed to load shared delegations: $error', style: const TextStyle(color: Colors.red)),
+            Text('Failed to load shared delegations: $error'),
             const SizedBox(height: 12),
             ElevatedButton(
               onPressed: () => ref.read(delegatedToMeProvider.notifier).refresh(),
@@ -336,11 +334,11 @@ class DelegatedToMeTab extends ConsumerWidget {
                 Center(
                   child: Column(
                     children: [
-                      Icon(Icons.speaker_notes_off, size: 64, color: Colors.grey),
+                      Icon(Icons.speaker_notes_off, size: 64),
                       SizedBox(height: 12),
                       Text(
                         'No devices have been delegated to you.',
-                        style: TextStyle(color: Colors.grey, fontSize: 16),
+                        style: TextStyle(fontSize: 16),
                       ),
                     ],
                   ),
@@ -360,9 +358,9 @@ class DelegatedToMeTab extends ConsumerWidget {
               return Card(
                 margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 child: ListTile(
-                  leading: const Icon(Icons.album, color: Colors.blue),
+                  leading: const Icon(Icons.album),
                   title: Text(item.deviceModel),
-                  subtitle: Text('Owner: ${item.ownerName}'),
+                  subtitle: Text('Owner: ${item.ownerEmail}'),
                 ),
               );
             },
