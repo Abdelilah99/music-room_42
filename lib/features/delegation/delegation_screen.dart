@@ -5,9 +5,6 @@ import 'package:music_room/core/api/web_socket_service.dart';
 import 'package:music_room/core/widgets/ws_shell.dart';
 import 'package:music_room/core/api/api_client.dart';
 
-// ==========================================================================
-// STEP 1: DATA DOMAIN CLASSES (Place them here at the top)
-// ==========================================================================
 
 class Device {
   final String id;
@@ -54,10 +51,6 @@ class DelegatedDevice {
     );
   }
 }
-
-// ==========================================================================
-// 2. STATE NOTIFIERS MANAGING ACTUAL NETWORK TRANSACTIONS
-// ==========================================================================
 
 class MyDevicesNotifier extends AutoDisposeNotifier<AsyncValue<List<Device>>> {
   Dio get _dio => ref.read(apiClientProvider).dio;
@@ -137,9 +130,6 @@ class DelegatedToMeNotifier extends AutoDisposeNotifier<AsyncValue<List<Delegate
 final myDevicesProvider = NotifierProvider.autoDispose<MyDevicesNotifier, AsyncValue<List<Device>>>(MyDevicesNotifier.new);
 final delegatedToMeProvider = NotifierProvider.autoDispose<DelegatedToMeNotifier, AsyncValue<List<DelegatedDevice>>>(DelegatedToMeNotifier.new);
 
-// ==========================================================================
-// 3. MAIN UI TAB EXPANSION VIEW
-// ==========================================================================
 
 class DelegationScreen extends ConsumerWidget {
   const DelegationScreen({super.key});
@@ -182,9 +172,6 @@ class DelegationScreen extends ConsumerWidget {
   }
 }
 
-// ==========================================================================
-// 4. TAB IMPLEMENTATIONS
-// ==========================================================================
 
 class MyDevicesTab extends ConsumerWidget {
   const MyDevicesTab({super.key});
