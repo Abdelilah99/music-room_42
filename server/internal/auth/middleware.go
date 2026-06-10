@@ -46,6 +46,40 @@ func (m *Middleware) Authenticate() gin.HandlerFunc {
 	}
 }
 
+// AuthenticateWS authenticates a WebSocket upgrade request. Browsers cannot set
+// the Authorization header on a WebSocket handshake, so the JWT is read from the
+// "token" query parameter first, falling back to a Bearer header for native
+// clients that can set one. On success it sets the same context keys as
+// Authenticate.
+func (m *Middleware) AuthenticateWS() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		tokenStr := c.Query("token")
+		if tokenStr == "" {
+			parts := strings.Split(c.GetHeader("Authorization"), " ")
+			if len(parts) == 2 && strings.ToLower(parts[0]) == "bearer" {
+				tokenStr = parts[1]
+			}
+		}
+		if tokenStr == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication token is required"})
+			c.Abort()
+			return
+		}
+
+		claims, err := m.jwtService.ValidateAccessToken(tokenStr)
+		if err != nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired token"})
+			c.Abort()
+			return
+		}
+
+		c.Set("user_id", claims.UserID)
+		c.Set("email", claims.Email)
+		c.Set("subscription_tier", claims.SubscriptionTier)
+		c.Next()
+	}
+}
+
 func RequireOwnership(paramName string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctxUserID, exists := c.Get("user_id")

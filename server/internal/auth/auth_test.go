@@ -235,6 +235,60 @@ func TestAuthMiddleware(t *testing.T) {
 	}
 }
 
+func TestAuthMiddlewareWS(t *testing.T) {
+	os.Setenv("JWT_SECRET", "ws-middleware-test-secret")
+	defer os.Unsetenv("JWT_SECRET")
+
+	s := auth.NewJWTService()
+	mw := auth.NewMiddleware(s)
+
+	r := gin.New()
+	r.Use(mw.AuthenticateWS())
+	r.GET("/ws/:id", func(c *gin.Context) {
+		userID, _ := c.Get("user_id")
+		c.String(http.StatusOK, userID.(string))
+	})
+
+	userID := uuid.New()
+	token, _ := s.GenerateAccessToken(&model.User{ID: userID, Email: "ws@example.com"})
+
+	// Test 1: token in query param (the browser path).
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet, "/ws/abc?token="+token, nil)
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Errorf("query token: expected 200, got %d", w.Code)
+	}
+	if w.Body.String() != userID.String() {
+		t.Errorf("query token: expected %s, got %s", userID.String(), w.Body.String())
+	}
+
+	// Test 2: token in Authorization header (native client fallback).
+	w = httptest.NewRecorder()
+	req, _ = http.NewRequest(http.MethodGet, "/ws/abc", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Errorf("header token: expected 200, got %d", w.Code)
+	}
+
+	// Test 3: no token at all.
+	w = httptest.NewRecorder()
+	req, _ = http.NewRequest(http.MethodGet, "/ws/abc", nil)
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("no token: expected 401, got %d", w.Code)
+	}
+
+	// Test 4: invalid token in query.
+	w = httptest.NewRecorder()
+	req, _ = http.NewRequest(http.MethodGet, "/ws/abc?token=garbage", nil)
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("invalid token: expected 401, got %d", w.Code)
+	}
+}
+
 func TestRequireOwnership(t *testing.T) {
 	userID := uuid.New()
 	userIDStr := userID.String()

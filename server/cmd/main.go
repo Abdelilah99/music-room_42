@@ -1,50 +1,75 @@
+// @title        Music Room API
+// @version      1.0
+// @description  REST API for the Music Room collaborative listening application.
+// @host         localhost:8081
+// @BasePath     /api/v1
+// @securityDefinitions.apikey BearerAuth
+// @in           header
+// @name         Authorization
+// @description  Enter your Bearer token: "Bearer <token>"
+
 package main
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"os"
 	"time"
 
+	_ "music-room/docs"
 	"music-room/internal/auth"
 	"music-room/internal/handler"
+	"music-room/internal/hub"
+	"music-room/internal/middleware"
 	"music-room/internal/repository"
 	"music-room/internal/service"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
+	swaggerFiles "github.com/swaggo/files"
+	ginSwagger "github.com/swaggo/gin-swagger"
 )
 
 func main() {
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	})))
+
 	if err := godotenv.Load(); err != nil {
-		log.Println("No .env file found, reading from environment")
+		slog.Info("no .env file found, reading from environment")
 	}
+
+	middleware.RegisterJSONTagNames()
 
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
-		log.Fatal("DATABASE_URL environment variable is required")
+		slog.Error("DATABASE_URL environment variable is required")
+		os.Exit(1)
 	}
 
-	log.Println("Connecting to database...")
+	slog.Info("connecting to database")
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	config, err := pgxpool.ParseConfig(dbURL)
 	if err != nil {
-		log.Fatalf("Failed to parse database URL: %v", err)
+		slog.Error("failed to parse database URL", "error", err)
+		os.Exit(1)
 	}
 
 	pool, err := pgxpool.NewWithConfig(ctx, config)
 	if err != nil {
-		log.Fatalf("Failed to create database pool: %v", err)
+		slog.Error("failed to create database pool", "error", err)
+		os.Exit(1)
 	}
 	defer pool.Close()
 
 	if err := pool.Ping(ctx); err != nil {
-		log.Fatalf("Failed to ping database: %v", err)
+		slog.Error("failed to ping database", "error", err)
+		os.Exit(1)
 	}
-	log.Println("Database connection established")
+	slog.Info("database connection established")
 
 	// Registration repositories and services
 	authRepo := repository.NewAuthRepository(pool)
@@ -74,15 +99,52 @@ func main() {
 	friendSvc := service.NewFriendService(friendRepo)
 	friendHandler := handler.NewFriendHandler(friendSvc)
 
-	r := setupRouter(authHandler, jwtHandler, jwtService, profileHandler, friendHandler)
+	// Music search service and handler
+	musicSvc := service.NewMusicService()
+	musicHandler := handler.NewMusicHandler(musicSvc)
+
+	// Google OAuth
+	oauthRepo := repository.NewOAuthRepository(pool)
+	googleHandler := auth.NewGoogleHandler(oauthRepo, userRepo, tokenRepo, jwtService)
+
+	// WebSocket hub manager (shared across all real-time services)
+	hubManager := hub.NewHubManager()
+
+	// Event repositories and services
+	eventRepo := repository.NewEventRepository(pool)
+	eventSvc := service.NewEventService(eventRepo)
+	eventHandler := handler.NewEventHandler(eventSvc)
+
+	// Track repositories and services
+	trackRepo := repository.NewTrackRepository(pool)
+	trackSvc := service.NewTrackService(eventRepo, trackRepo)
+	trackHandler := handler.NewTrackHandler(trackSvc, hubManager)
+
+	// Device repositories and services
+	deviceRepo := repository.NewDeviceRepository(pool)
+	deviceSvc := service.NewDeviceService(deviceRepo)
+	deviceHandler := handler.NewDeviceHandler(deviceSvc)
+
+	// Delegation repositories and services
+	delegRepo := repository.NewDelegationRepository(pool)
+	delegSvc := service.NewDelegationService(deviceRepo, delegRepo)
+	delegHandler := handler.NewDelegationHandler(delegSvc)
+
+	allowedOrigins := os.Getenv("ALLOWED_ORIGINS")
+	globalLimit := getEnvOrDefault("RATE_LIMIT_GLOBAL", "100-M")
+	authLimit := getEnvOrDefault("RATE_LIMIT_AUTH", "10-M")
+
+	r := setupRouter(authHandler, jwtHandler, jwtService, profileHandler, friendHandler, musicHandler, googleHandler, hubManager, eventHandler, trackHandler, deviceHandler, delegHandler, allowedOrigins, globalLimit, authLimit)
 
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
 	}
 
+	slog.Info("server starting", "port", port)
 	if err := r.Run(":" + port); err != nil {
-		log.Fatalf("Failed to start server: %v", err)
+		slog.Error("server stopped", "error", err)
+		os.Exit(1)
 	}
 }
 
@@ -92,19 +154,36 @@ func setupRouter(
 	jwtService *auth.JWTService,
 	profileHandler *handler.ProfileHandler,
 	friendHandler *handler.FriendHandler,
+	musicHandler *handler.MusicHandler,
+	googleHandler *auth.GoogleHandler,
+	hubManager *hub.HubManager,
+	eventHandler *handler.EventHandler,
+	trackHandler *handler.TrackHandler,
+	deviceHandler *handler.DeviceHandler,
+	delegHandler *handler.DelegationHandler,
+	allowedOrigins string,
+	globalLimitRate string,
+	authLimitRate string,
 ) *gin.Engine {
-	r := gin.Default()
+	r := gin.New()
+	r.Use(gin.Recovery())
+
+	r.Use(middleware.NewCORS(allowedOrigins))
+	r.Use(middleware.NewLogger())
+	r.Use(middleware.NewRateLimiter(globalLimitRate))
 
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "UP"})
 	})
 
+	r.GET("/api/v1/docs/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+
 	jwtMiddleware := auth.NewMiddleware(jwtService)
 
 	v1 := r.Group("/api/v1")
 	{
-		// Registration and email verification (public)
 		authGroup := v1.Group("/auth")
+		authGroup.Use(middleware.NewRateLimiter(authLimitRate))
 		{
 			authGroup.POST("/register", authHandler.Register)
 			authGroup.GET("/verify-email", authHandler.VerifyEmail)
@@ -114,18 +193,24 @@ func setupRouter(
 			authGroup.POST("/login", jwtHandler.Login)
 			authGroup.POST("/refresh", jwtHandler.Refresh)
 			authGroup.POST("/logout", jwtHandler.Logout)
+			authGroup.POST("/google", googleHandler.SignIn)
 		}
 
-		// Profile endpoints (JWT protected)
 		users := v1.Group("/users")
 		users.Use(jwtMiddleware.Authenticate())
 		{
 			users.GET("/me", profileHandler.GetMyProfile)
 			users.PATCH("/me", profileHandler.UpdateMyProfile)
+			users.GET("/search", profileHandler.SearchUsers)
 			users.GET("/:id", profileHandler.GetUserProfile)
 		}
 
-		// Friend endpoints (JWT protected)
+		link := v1.Group("/auth/link")
+		link.Use(jwtMiddleware.Authenticate())
+		{
+			link.POST("/google", googleHandler.LinkGoogle)
+		}
+
 		friends := v1.Group("/friends")
 		friends.Use(jwtMiddleware.Authenticate())
 		{
@@ -135,6 +220,48 @@ func setupRouter(
 			friends.DELETE("/:id", friendHandler.Unfriend)
 			friends.GET("", friendHandler.ListFriends)
 			friends.GET("/requests", friendHandler.ListRequests)
+			friends.GET("/outgoing", friendHandler.ListOutgoing)
+		}
+
+		music := v1.Group("/music")
+		music.Use(jwtMiddleware.Authenticate())
+		{
+			music.GET("/search", musicHandler.Search)
+		}
+
+		ws := v1.Group("/ws")
+		ws.Use(jwtMiddleware.AuthenticateWS())
+		{
+			ws.GET("/:entityID", func(c *gin.Context) {
+				hub.ServeWS(hubManager, c.Param("entityID"), c)
+			})
+		}
+
+		devices := v1.Group("/devices")
+		devices.Use(jwtMiddleware.Authenticate())
+		{
+			devices.POST("", deviceHandler.Register)
+			devices.GET("", deviceHandler.List)
+			devices.GET("/delegated", delegHandler.ListDelegated)
+			devices.GET("/:id", deviceHandler.Get)
+			devices.DELETE("/:id", deviceHandler.Delete)
+			devices.POST("/:id/delegate", delegHandler.Grant)
+			devices.DELETE("/:id/delegate", delegHandler.Revoke)
+		}
+
+		events := v1.Group("/events")
+		events.Use(jwtMiddleware.Authenticate())
+		{
+			events.POST("", eventHandler.Create)
+			events.GET("", eventHandler.List)
+			events.GET("/:id", eventHandler.Get)
+			events.PUT("/:id", eventHandler.Update)
+			events.DELETE("/:id", eventHandler.Delete)
+			events.POST("/:id/invites", eventHandler.Invite)
+			events.POST("/:id/tracks", trackHandler.Suggest)
+			events.GET("/:id/queue", trackHandler.GetQueue)
+			events.POST("/:id/tracks/:trackId/vote", trackHandler.Vote)
+			events.DELETE("/:id/tracks/:trackId", trackHandler.DeleteTrack)
 		}
 	}
 

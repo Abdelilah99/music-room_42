@@ -1,24 +1,165 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:music_room/features/track_vote/track_vote_screen.dart';
+import 'package:music_room/features/auth/auth_provider.dart';
+import 'package:music_room/features/auth/forgot_password_screen.dart';
+import 'package:music_room/features/auth/login_screen.dart';
+import 'package:music_room/features/auth/register_screen.dart';
+import 'package:music_room/features/auth/verify_notice_screen.dart';
 import 'package:music_room/features/delegation/delegation_screen.dart';
 import 'package:music_room/features/playlist_editor/playlist_editor_screen.dart';
+import 'package:music_room/features/profile/friends_screen.dart';
 import 'package:music_room/features/profile/profile_screen.dart';
+import 'package:music_room/features/profile/user_profile_screen.dart';
+import 'package:music_room/features/track_vote/create_event_screen.dart';
+import 'package:music_room/features/track_vote/event_list_screen.dart';
 
-final router = GoRouter(
-  initialLocation: '/vote',
-  routes: [
-    ShellRoute(
-      builder: (context, state, child) => AppShell(child: child),
-      routes: [
-        GoRoute(path: '/vote', builder: (context, _) => const TrackVoteScreen()),
-        GoRoute(path: '/delegation', builder: (context, _) => const DelegationScreen()),
-        GoRoute(path: '/playlist', builder: (context, _) => const PlaylistEditorScreen()),
-        GoRoute(path: '/profile', builder: (context, _) => const ProfileScreen()),
-      ],
-    ),
-  ],
-);
+// ── Router provider ──────────────────────────────────────────────────────────
+
+final routerProvider = Provider<GoRouter>((ref) {
+  final notifier = _RouterNotifier(ref);
+  ref.onDispose(notifier.dispose);
+
+  return GoRouter(
+    initialLocation: '/login',
+    refreshListenable: notifier,
+    redirect: notifier.redirect,
+    routes: [
+      // ── Auth routes (no NavigationBar) ─────────────────────────────────
+      GoRoute(
+        path: '/login',
+        builder: (_, _) => const LoginScreen(),
+      ),
+      GoRoute(
+        path: '/register',
+        builder: (_, _) => const RegisterScreen(),
+      ),
+      GoRoute(
+        path: '/verify-notice',
+        builder: (_, state) => VerifyNoticeScreen(
+          email: state.uri.queryParameters['email'],
+        ),
+      ),
+      GoRoute(
+        path: '/forgot-password',
+        builder: (_, _) => const ForgotPasswordScreen(),
+      ),
+      // ── App routes (inside shell with NavigationBar) ────────────────────
+      ShellRoute(
+        builder: (context, state, child) => AppShell(child: child),
+        routes: [
+          GoRoute(
+            path: '/vote',
+            builder: (_, _) => const EventListScreen(),
+            routes: [
+              GoRoute(
+                path: 'create',
+                builder: (_, _) => const CreateEventScreen(),
+              ),
+            ],
+          ),
+          GoRoute(
+            // Placeholder until #30 (event detail screen) lands; it will
+            // replace this with the real EventDetailScreen at the same path.
+            path: '/events/:id',
+            builder: (_, state) => _EventDetailPlaceholder(
+              eventId: state.pathParameters['id']!,
+            ),
+          ),
+          GoRoute(
+            path: '/delegation',
+            builder: (_, _) => const DelegationScreen(),
+          ),
+          GoRoute(
+            path: '/playlist',
+            builder: (_, _) => const PlaylistEditorScreen(),
+          ),
+          GoRoute(
+            path: '/profile',
+            builder: (_, _) => const ProfileScreen(),
+            routes: [
+              GoRoute(
+                path: 'friends',
+                builder: (_, _) => const FriendsScreen(),
+              ),
+              GoRoute(
+                path: 'users/:id',
+                builder: (_, state) => UserProfileScreen(
+                  userId: state.pathParameters['id']!,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    ],
+  );
+});
+
+// ── Router notifier (bridges Riverpod → GoRouter refreshListenable) ──────────
+
+class _RouterNotifier extends ChangeNotifier {
+  final Ref _ref;
+
+  _RouterNotifier(this._ref) {
+    _ref.listen<AsyncValue<AuthStatus>>(
+      authProvider,
+      (_, _) => notifyListeners(),
+    );
+  }
+
+  String? redirect(BuildContext context, GoRouterState state) {
+    final authAsync = _ref.read(authProvider);
+
+    // Still checking stored tokens — do not redirect yet.
+    if (authAsync.isLoading) return null;
+
+    final status =
+        authAsync.value ?? AuthStatus.unauthenticated;
+    final path = state.uri.path;
+
+    final isAuthRoute = path.startsWith('/login') ||
+        path.startsWith('/register') ||
+        path.startsWith('/verify-notice') ||
+        path.startsWith('/forgot-password');
+
+    if (status == AuthStatus.unauthenticated && !isAuthRoute) return '/login';
+    if (status == AuthStatus.authenticated && isAuthRoute) return '/vote';
+    return null;
+  }
+}
+
+// ── Temporary event detail placeholder (replaced by #30) ─────────────────────
+
+class _EventDetailPlaceholder extends StatelessWidget {
+  const _EventDetailPlaceholder({required this.eventId});
+
+  final String eventId;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Event')),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.event_available_outlined, size: 56),
+              const SizedBox(height: 16),
+              Text('Event $eventId', textAlign: TextAlign.center),
+              const SizedBox(height: 8),
+              const Text('Detail screen coming soon'),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ── App shell (bottom NavigationBar) ─────────────────────────────────────────
 
 class AppShell extends StatelessWidget {
   const AppShell({super.key, required this.child});
