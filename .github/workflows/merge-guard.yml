@@ -9,6 +9,8 @@ jobs:
   author-ready:
     name: author-ready
     runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
     steps:
       - name: Enforce author-only merge
         env:
