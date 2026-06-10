@@ -11,11 +11,7 @@ class EventApi {
 
   Future<List<QueueTrack>> getQueue(String eventId) async {
     final res = await _client.dio.get('/api/v1/events/$eventId/queue');
-    // Accept both {"tracks": [...]} and a bare array.
-    final raw = res.data;
-    final list = raw is List
-        ? raw
-        : (raw as Map<String, dynamic>)['tracks'] as List<dynamic>? ?? [];
+    final list = (res.data as Map<String, dynamic>)['tracks'] as List<dynamic>? ?? [];
     return list
         .map((e) => QueueTrack.fromJson(e as Map<String, dynamic>))
         .toList();
@@ -32,7 +28,6 @@ final eventApiProvider = Provider<EventApi>(
 );
 
 /// Parse a raw WS frame into a sorted queue list.
-/// The assumed envelope is `{"type":"queue_update","payload":[...tracks...]}`.
 /// Returns null for any unrecognised or malformed frame.
 List<QueueTrack>? parseQueueUpdate(dynamic raw) {
   Map<String, dynamic> msg;
@@ -44,7 +39,7 @@ List<QueueTrack>? parseQueueUpdate(dynamic raw) {
     return null;
   }
   if (msg['type'] != 'queue_update') return null;
-  final payload = msg['payload'] as List<dynamic>?;
+  final payload = msg['data'] as List<dynamic>?;
   if (payload == null) return null;
   return payload
       .map((e) => QueueTrack.fromJson(e as Map<String, dynamic>))
