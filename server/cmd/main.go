@@ -130,11 +130,19 @@ func main() {
 	delegSvc := service.NewDelegationService(deviceRepo, delegRepo)
 	delegHandler := handler.NewDelegationHandler(delegSvc)
 
+	// Command handler (playback relay)
+	commandHandler := handler.NewCommandHandler(deviceSvc, hubManager)
+
+	// Playlist repositories and services
+	playlistRepo := repository.NewPlaylistRepository(pool)
+	playlistSvc := service.NewPlaylistService(playlistRepo)
+	playlistHandler := handler.NewPlaylistHandler(playlistSvc)
+
 	allowedOrigins := os.Getenv("ALLOWED_ORIGINS")
 	globalLimit := getEnvOrDefault("RATE_LIMIT_GLOBAL", "100-M")
 	authLimit := getEnvOrDefault("RATE_LIMIT_AUTH", "10-M")
 
-	r := setupRouter(authHandler, jwtHandler, jwtService, profileHandler, friendHandler, musicHandler, googleHandler, hubManager, eventHandler, trackHandler, deviceHandler, delegHandler, allowedOrigins, globalLimit, authLimit)
+	r := setupRouter(authHandler, jwtHandler, jwtService, profileHandler, friendHandler, musicHandler, googleHandler, hubManager, eventHandler, trackHandler, deviceHandler, delegHandler, commandHandler, playlistHandler, allowedOrigins, globalLimit, authLimit)
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -161,6 +169,8 @@ func setupRouter(
 	trackHandler *handler.TrackHandler,
 	deviceHandler *handler.DeviceHandler,
 	delegHandler *handler.DelegationHandler,
+	commandHandler *handler.CommandHandler,
+	playlistHandler *handler.PlaylistHandler,
 	allowedOrigins string,
 	globalLimitRate string,
 	authLimitRate string,
@@ -247,6 +257,13 @@ func setupRouter(
 			devices.DELETE("/:id", deviceHandler.Delete)
 			devices.POST("/:id/delegate", delegHandler.Grant)
 			devices.DELETE("/:id/delegate", delegHandler.Revoke)
+			devices.POST("/:id/command", delegHandler.RequireDelegateOrOwner(), commandHandler.Send)
+		}
+
+		deviceWs := v1.Group("/devices")
+		deviceWs.Use(jwtMiddleware.AuthenticateWS())
+		{
+			deviceWs.GET("/:id/ws", commandHandler.ServeDeviceWS)
 		}
 
 		events := v1.Group("/events")
@@ -262,6 +279,17 @@ func setupRouter(
 			events.GET("/:id/queue", trackHandler.GetQueue)
 			events.POST("/:id/tracks/:trackId/vote", trackHandler.Vote)
 			events.DELETE("/:id/tracks/:trackId", trackHandler.DeleteTrack)
+		}
+
+		playlists := v1.Group("/playlists")
+		playlists.Use(jwtMiddleware.Authenticate())
+		{
+			playlists.POST("", playlistHandler.Create)
+			playlists.GET("", playlistHandler.List)
+			playlists.GET("/:id", playlistHandler.Get)
+			playlists.PUT("/:id", playlistHandler.Update)
+			playlists.DELETE("/:id", playlistHandler.Delete)
+			playlists.POST("/:id/invites", playlistHandler.Invite)
 		}
 	}
 

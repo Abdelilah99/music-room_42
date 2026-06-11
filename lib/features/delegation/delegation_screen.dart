@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:music_room/core/api/web_socket_service.dart';
 import 'package:music_room/core/widgets/ws_shell.dart';
-import 'package:music_room/core/models/device.dart';
+import 'package:music_room/core/models/device.dart'; // Import official model from dev
 import 'package:music_room/features/delegation/delegation_provider.dart';
 
 class DelegationScreen extends ConsumerWidget {
@@ -48,7 +48,6 @@ class MyDevicesTab extends ConsumerWidget {
   const MyDevicesTab({super.key});
 
   void _openFriendPickerAndGrant(BuildContext context, WidgetRef ref, Device device) async {
-    // [Critical Fix] Bottom sheet fetching live friend API data instead of a hardcoded mock
     final selectedFriend = await showModalBottomSheet<Map<String, dynamic>>(
       context: context,
       isScrollControlled: true,
@@ -96,15 +95,16 @@ class MyDevicesTab extends ConsumerWidget {
 
     if (selectedFriend == null || !context.mounted) return;
 
-    final String friendId = selectedFriend['id']?.toString() ?? '';
+    final String friendId = selectedFriend['id']?.toString() ?? selectedFriend['user_id']?.toString() ?? '';
     final String friendEmail = selectedFriend['email']?.toString() ?? 'Selected Friend';
 
-    if (device.delegatedUserId != null) {
+    // UI Verification Rule: Check replacement status using the official dev branch model helpers
+    if (device.isDelegated) {
       final confirmReplacement = await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
           title: const Text('Confirm Replacement'),
-          content: Text('This device is already delegated to ${device.delegatedUserEmail}. Replace with $friendEmail?'),
+          content: Text('This device is already delegated to ${device.delegate?.email}. Replace with $friendEmail?'),
           actions: [
             TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
             ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text('Confirm')),
@@ -122,7 +122,10 @@ class MyDevicesTab extends ConsumerWidget {
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.toString().replaceAll('Exception: ', '')), backgroundColor: Theme.of(context).colorScheme.error),
+          SnackBar(
+            content: Text(e.toString().replaceAll('Exception: ', '')), 
+            backgroundColor: Theme.of(context).colorScheme.error,
+          ),
         );
       }
     }
@@ -142,14 +145,14 @@ class MyDevicesTab extends ConsumerWidget {
           itemCount: devices.length,
           itemBuilder: (context, index) {
             final device = devices[index];
-            final isDelegated = device.delegatedUserId != null;
+            final isDelegated = device.isDelegated; // Uses clean official getter from dev branch
 
             return Card(
               margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
               child: ListTile(
                 title: Text(device.name),
                 subtitle: Text(
-                  isDelegated ? 'Delegated to: ${device.delegatedUserEmail}' : 'Status: Not Shared',
+                  isDelegated ? 'Delegated to: ${device.delegate?.email}' : 'Status: Not Shared',
                   style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
                 trailing: Row(
@@ -164,7 +167,6 @@ class MyDevicesTab extends ConsumerWidget {
                       IconButton(
                         icon: const Icon(Icons.remove_circle),
                         onPressed: () async {
-                          // [Minor Fix] Added a confirmation dialog checkpoint before executing revoke operations
                           final confirmRevoke = await showDialog<bool>(
                             context: context,
                             builder: (context) => AlertDialog(
@@ -188,7 +190,6 @@ class MyDevicesTab extends ConsumerWidget {
                             if (context.mounted) {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(
-                                  // [Minor Fix] Strip 'Exception:' prefix cleanly from error dialog outputs
                                   content: Text(e.toString().replaceAll('Exception: ', '')),
                                   backgroundColor: Theme.of(context).colorScheme.error,
                                 ),
