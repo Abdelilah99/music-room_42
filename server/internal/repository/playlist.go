@@ -7,6 +7,7 @@ import (
 	"music-room/internal/model"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -19,6 +20,10 @@ type PlaylistRepository interface {
 	Delete(ctx context.Context, playlistID uuid.UUID) error
 	AddInvite(ctx context.Context, playlistID, userID uuid.UUID) error
 	ListTracks(ctx context.Context, playlistID uuid.UUID) ([]model.PlaylistTrack, error)
+	IsInvited(ctx context.Context, playlistID, userID uuid.UUID) (bool, error)
+	AddTrack(ctx context.Context, playlistID, callerID uuid.UUID, req model.AddTrackRequest) (*model.PlaylistTrack, error)
+	RemoveTrack(ctx context.Context, playlistID, trackID uuid.UUID) error
+	MoveTrack(ctx context.Context, playlistID, trackID uuid.UUID, newPos int) error
 }
 
 type playlistRepository struct {
@@ -155,3 +160,131 @@ func (r *playlistRepository) ListTracks(ctx context.Context, playlistID uuid.UUI
 	}
 	return tracks, rows.Err()
 }
+
+func (r *playlistRepository) IsInvited(ctx context.Context, playlistID, userID uuid.UUID) (bool, error) {
+	var exists bool
+	err := r.pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM playlist_invites WHERE playlist_id = $1 AND user_id = $2)`,
+		playlistID, userID,
+	).Scan(&exists)
+	return exists, err
+}
+
+func scanPlaylistTrack(row interface{ Scan(...any) error }) (*model.PlaylistTrack, error) {
+	var t model.PlaylistTrack
+	err := row.Scan(&t.ID, &t.PlaylistID, &t.ExternalID, &t.Title, &t.Artist, &t.Position, &t.AddedBy, &t.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &t, nil
+}
+
+func (r *playlistRepository) AddTrack(ctx context.Context, playlistID, callerID uuid.UUID, req model.AddTrackRequest) (*model.PlaylistTrack, error) {
+	return scanPlaylistTrack(r.pool.QueryRow(ctx, `
+		INSERT INTO playlist_tracks (playlist_id, external_id, title, artist, position, added_by)
+		VALUES ($1, $2, $3, $4,
+			COALESCE((SELECT MAX(position) FROM playlist_tracks WHERE playlist_id = $1), 0) + 1,
+			$5)
+		RETURNING id, playlist_id, external_id, title, artist, position, added_by, created_at`,
+		playlistID, req.ExternalID, req.Title, req.Artist, callerID,
+	))
+}
+
+// RemoveTrack deletes the track and recompacts positions so there are no gaps.
+func (r *playlistRepository) RemoveTrack(ctx context.Context, playlistID, trackID uuid.UUID) error {
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	result, err := tx.Exec(ctx,
+		`DELETE FROM playlist_tracks WHERE id = $1 AND playlist_id = $2`,
+		trackID, playlistID,
+	)
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() == 0 {
+		return pgx.ErrNoRows
+	}
+
+	// Recompact remaining positions to 1, 2, 3... with no gaps.
+	_, err = tx.Exec(ctx, `
+		UPDATE playlist_tracks pt
+		SET position = sub.rn
+		FROM (
+			SELECT id, ROW_NUMBER() OVER (ORDER BY position) AS rn
+			FROM playlist_tracks
+			WHERE playlist_id = $1
+		) sub
+		WHERE pt.id = sub.id`, playlistID)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
+}
+
+// MoveTrack shifts affected rows and places the track at newPos.
+// Runs inside a serializable transaction so two concurrent moves on the same
+// playlist cannot interleave and corrupt the position order.
+func (r *playlistRepository) MoveTrack(ctx context.Context, playlistID, trackID uuid.UUID, newPos int) error {
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	// Validate newPos against the actual track count.
+	var count int
+	if err := tx.QueryRow(ctx,
+		`SELECT COUNT(*) FROM playlist_tracks WHERE playlist_id = $1`, playlistID,
+	).Scan(&count); err != nil {
+		return err
+	}
+	if newPos > count {
+		return ErrPositionOutOfRange
+	}
+
+	var currentPos int
+	if err := tx.QueryRow(ctx,
+		`SELECT position FROM playlist_tracks WHERE id = $1 AND playlist_id = $2`,
+		trackID, playlistID,
+	).Scan(&currentPos); err != nil {
+		return err
+	}
+
+	if currentPos == newPos {
+		return tx.Commit(ctx)
+	}
+
+	if newPos > currentPos {
+		_, err = tx.Exec(ctx, `
+			UPDATE playlist_tracks
+			SET position = position - 1
+			WHERE playlist_id = $1 AND position > $2 AND position <= $3`,
+			playlistID, currentPos, newPos)
+	} else {
+		_, err = tx.Exec(ctx, `
+			UPDATE playlist_tracks
+			SET position = position + 1
+			WHERE playlist_id = $1 AND position >= $2 AND position < $3`,
+			playlistID, newPos, currentPos)
+	}
+	if err != nil {
+		return err
+	}
+
+	_, err = tx.Exec(ctx,
+		`UPDATE playlist_tracks SET position = $1 WHERE id = $2 AND playlist_id = $3`,
+		newPos, trackID, playlistID)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
+}
+
+// ErrPositionOutOfRange is returned by MoveTrack when newPos exceeds the track count.
+var ErrPositionOutOfRange = fmt.Errorf("position out of range")
