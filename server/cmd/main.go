@@ -290,6 +290,9 @@ func setupRouter(
 			playlists.PUT("/:id", playlistHandler.Update)
 			playlists.DELETE("/:id", playlistHandler.Delete)
 			playlists.POST("/:id/invites", playlistHandler.Invite)
+			playlists.POST("/:id/tracks", playlistHandler.AddTrack)
+			playlists.DELETE("/:id/tracks/:trackId", playlistHandler.RemoveTrack)
+			playlists.PATCH("/:id/tracks/:trackId/position", playlistHandler.MoveTrack)
 		}
 	}
 

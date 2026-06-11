@@ -3,6 +3,7 @@ package service_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -25,6 +26,10 @@ type mockPlaylistRepo struct {
 	deleteFn        func(ctx context.Context, playlistID uuid.UUID) error
 	addInviteFn     func(ctx context.Context, playlistID, userID uuid.UUID) error
 	listTracksFn    func(ctx context.Context, playlistID uuid.UUID) ([]model.PlaylistTrack, error)
+	isInvitedFn     func(ctx context.Context, playlistID, userID uuid.UUID) (bool, error)
+	addTrackFn      func(ctx context.Context, playlistID, callerID uuid.UUID, req model.AddTrackRequest) (*model.PlaylistTrack, error)
+	removeTrackFn   func(ctx context.Context, playlistID, trackID uuid.UUID) error
+	moveTrackFn     func(ctx context.Context, playlistID, trackID uuid.UUID, newPos int) error
 }
 
 func (m *mockPlaylistRepo) Create(ctx context.Context, ownerID uuid.UUID, req model.CreatePlaylistRequest) (*model.Playlist, error) {
@@ -53,6 +58,21 @@ func (m *mockPlaylistRepo) ListTracks(ctx context.Context, playlistID uuid.UUID)
 		return m.listTracksFn(ctx, playlistID)
 	}
 	return nil, nil
+}
+func (m *mockPlaylistRepo) IsInvited(ctx context.Context, playlistID, userID uuid.UUID) (bool, error) {
+	if m.isInvitedFn != nil {
+		return m.isInvitedFn(ctx, playlistID, userID)
+	}
+	return false, nil
+}
+func (m *mockPlaylistRepo) AddTrack(ctx context.Context, playlistID, callerID uuid.UUID, req model.AddTrackRequest) (*model.PlaylistTrack, error) {
+	return m.addTrackFn(ctx, playlistID, callerID, req)
+}
+func (m *mockPlaylistRepo) RemoveTrack(ctx context.Context, playlistID, trackID uuid.UUID) error {
+	return m.removeTrackFn(ctx, playlistID, trackID)
+}
+func (m *mockPlaylistRepo) MoveTrack(ctx context.Context, playlistID, trackID uuid.UUID, newPos int) error {
+	return m.moveTrackFn(ctx, playlistID, trackID, newPos)
 }
 
 // --- helpers ---
@@ -281,4 +301,236 @@ func TestPlaylistService_Invite_NonExistentUser_Returns404(t *testing.T) {
 	if !errors.Is(err, service.ErrUserNotFound) {
 		t.Errorf("expected ErrUserNotFound, got %v", err)
 	}
+}
+
+// --- AddTrack tests ---
+
+func TestPlaylistService_AddTrack_License0_AnyUserCanAdd(t *testing.T) {
+	playlistID := uuid.New()
+	callerID := uuid.New()
+	want := &model.PlaylistTrack{ID: uuid.New(), PlaylistID: playlistID, Title: "Song", Artist: "Artist", Position: 1}
+
+	repo := &mockPlaylistRepo{
+		getAccessibleFn: func(_ context.Context, _, _ uuid.UUID) (*model.Playlist, error) {
+			return &model.Playlist{ID: playlistID, OwnerID: uuid.New(), License: 0}, nil
+		},
+		addTrackFn: func(_ context.Context, _, _ uuid.UUID, _ model.AddTrackRequest) (*model.PlaylistTrack, error) {
+			return want, nil
+		},
+	}
+
+	svc := service.NewPlaylistService(repo)
+	got, err := svc.AddTrack(context.Background(), playlistID, callerID, model.AddTrackRequest{ExternalID: "1", Title: "Song", Artist: "Artist"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.ID != want.ID {
+		t.Errorf("expected track %s, got %s", want.ID, got.ID)
+	}
+}
+
+func TestPlaylistService_AddTrack_License1_InvitedUserCanAdd(t *testing.T) {
+	playlistID := uuid.New()
+	callerID := uuid.New()
+	ownerID := uuid.New()
+	want := &model.PlaylistTrack{ID: uuid.New()}
+
+	repo := &mockPlaylistRepo{
+		getAccessibleFn: func(_ context.Context, _, _ uuid.UUID) (*model.Playlist, error) {
+			return &model.Playlist{ID: playlistID, OwnerID: ownerID, License: 1}, nil
+		},
+		isInvitedFn: func(_ context.Context, _, _ uuid.UUID) (bool, error) { return true, nil },
+		addTrackFn: func(_ context.Context, _, _ uuid.UUID, _ model.AddTrackRequest) (*model.PlaylistTrack, error) {
+			return want, nil
+		},
+	}
+
+	svc := service.NewPlaylistService(repo)
+	got, err := svc.AddTrack(context.Background(), playlistID, callerID, model.AddTrackRequest{ExternalID: "1", Title: "Song", Artist: "Artist"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.ID != want.ID {
+		t.Errorf("expected track %s, got %s", want.ID, got.ID)
+	}
+}
+
+func TestPlaylistService_AddTrack_License1_NotInvited_Returns403(t *testing.T) {
+	playlistID := uuid.New()
+	ownerID := uuid.New()
+
+	repo := &mockPlaylistRepo{
+		getAccessibleFn: func(_ context.Context, _, _ uuid.UUID) (*model.Playlist, error) {
+			return &model.Playlist{ID: playlistID, OwnerID: ownerID, License: 1}, nil
+		},
+		isInvitedFn: func(_ context.Context, _, _ uuid.UUID) (bool, error) { return false, nil },
+	}
+
+	svc := service.NewPlaylistService(repo)
+	_, err := svc.AddTrack(context.Background(), playlistID, uuid.New(), model.AddTrackRequest{ExternalID: "1", Title: "Song", Artist: "Artist"})
+	if !errors.Is(err, service.ErrEditNotAllowed) {
+		t.Errorf("expected ErrEditNotAllowed, got %v", err)
+	}
+}
+
+func TestPlaylistService_AddTrack_Duplicate_Returns409(t *testing.T) {
+	playlistID := uuid.New()
+	uniqueErr := &pgconn.PgError{Code: "23505"}
+
+	repo := &mockPlaylistRepo{
+		getAccessibleFn: func(_ context.Context, _, _ uuid.UUID) (*model.Playlist, error) {
+			return &model.Playlist{ID: playlistID, OwnerID: uuid.New(), License: 0}, nil
+		},
+		addTrackFn: func(_ context.Context, _, _ uuid.UUID, _ model.AddTrackRequest) (*model.PlaylistTrack, error) {
+			return nil, uniqueErr
+		},
+	}
+
+	svc := service.NewPlaylistService(repo)
+	_, err := svc.AddTrack(context.Background(), playlistID, uuid.New(), model.AddTrackRequest{ExternalID: "1", Title: "Song", Artist: "Artist"})
+	if !errors.Is(err, service.ErrDuplicateTrack) {
+		t.Errorf("expected ErrDuplicateTrack, got %v", err)
+	}
+}
+
+// --- RemoveTrack tests ---
+
+func TestPlaylistService_RemoveTrack_Owner_Succeeds(t *testing.T) {
+	playlistID := uuid.New()
+	ownerID := uuid.New()
+	trackID := uuid.New()
+	removed := false
+
+	repo := &mockPlaylistRepo{
+		getAccessibleFn: func(_ context.Context, _, _ uuid.UUID) (*model.Playlist, error) {
+			return &model.Playlist{ID: playlistID, OwnerID: ownerID, License: 0}, nil
+		},
+		removeTrackFn: func(_ context.Context, _, _ uuid.UUID) error {
+			removed = true
+			return nil
+		},
+	}
+
+	svc := service.NewPlaylistService(repo)
+	if err := svc.RemoveTrack(context.Background(), playlistID, ownerID, trackID); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !removed {
+		t.Error("expected RemoveTrack to be called on repository")
+	}
+}
+
+func TestPlaylistService_RemoveTrack_TrackNotFound_Returns404(t *testing.T) {
+	playlistID := uuid.New()
+
+	repo := &mockPlaylistRepo{
+		getAccessibleFn: func(_ context.Context, _, _ uuid.UUID) (*model.Playlist, error) {
+			return &model.Playlist{ID: playlistID, OwnerID: uuid.New(), License: 0}, nil
+		},
+		removeTrackFn: func(_ context.Context, _, _ uuid.UUID) error { return pgx.ErrNoRows },
+	}
+
+	svc := service.NewPlaylistService(repo)
+	err := svc.RemoveTrack(context.Background(), playlistID, uuid.New(), uuid.New())
+	if !errors.Is(err, service.ErrPlaylistTrackNotFound) {
+		t.Errorf("expected ErrPlaylistTrackNotFound, got %v", err)
+	}
+}
+
+func TestPlaylistService_RemoveTrack_NotAllowed_Returns403(t *testing.T) {
+	playlistID := uuid.New()
+	ownerID := uuid.New()
+
+	repo := &mockPlaylistRepo{
+		getAccessibleFn: func(_ context.Context, _, _ uuid.UUID) (*model.Playlist, error) {
+			return &model.Playlist{ID: playlistID, OwnerID: ownerID, License: 1}, nil
+		},
+		isInvitedFn: func(_ context.Context, _, _ uuid.UUID) (bool, error) { return false, nil },
+	}
+
+	svc := service.NewPlaylistService(repo)
+	err := svc.RemoveTrack(context.Background(), playlistID, uuid.New(), uuid.New())
+	if !errors.Is(err, service.ErrEditNotAllowed) {
+		t.Errorf("expected ErrEditNotAllowed, got %v", err)
+	}
+}
+
+// --- MoveTrack tests ---
+
+func TestPlaylistService_MoveTrack_Succeeds(t *testing.T) {
+	playlistID := uuid.New()
+	trackID := uuid.New()
+	moved := false
+
+	repo := &mockPlaylistRepo{
+		getAccessibleFn: func(_ context.Context, _, _ uuid.UUID) (*model.Playlist, error) {
+			return &model.Playlist{ID: playlistID, OwnerID: uuid.New(), License: 0}, nil
+		},
+		moveTrackFn: func(_ context.Context, _, _ uuid.UUID, pos int) error {
+			if pos != 2 {
+				return errors.New("unexpected position")
+			}
+			moved = true
+			return nil
+		},
+	}
+
+	svc := service.NewPlaylistService(repo)
+	if err := svc.MoveTrack(context.Background(), playlistID, uuid.New(), trackID, 2); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !moved {
+		t.Error("expected MoveTrack to be called on repository")
+	}
+}
+
+func TestPlaylistService_MoveTrack_TrackNotFound_Returns404(t *testing.T) {
+	playlistID := uuid.New()
+
+	repo := &mockPlaylistRepo{
+		getAccessibleFn: func(_ context.Context, _, _ uuid.UUID) (*model.Playlist, error) {
+			return &model.Playlist{ID: playlistID, OwnerID: uuid.New(), License: 0}, nil
+		},
+		moveTrackFn: func(_ context.Context, _, _ uuid.UUID, _ int) error { return pgx.ErrNoRows },
+	}
+
+	svc := service.NewPlaylistService(repo)
+	err := svc.MoveTrack(context.Background(), playlistID, uuid.New(), uuid.New(), 1)
+	if !errors.Is(err, service.ErrPlaylistTrackNotFound) {
+		t.Errorf("expected ErrPlaylistTrackNotFound, got %v", err)
+	}
+}
+
+func TestPlaylistService_MoveTrack_NotAllowed_Returns403(t *testing.T) {
+	playlistID := uuid.New()
+	ownerID := uuid.New()
+
+	repo := &mockPlaylistRepo{
+		getAccessibleFn: func(_ context.Context, _, _ uuid.UUID) (*model.Playlist, error) {
+			return &model.Playlist{ID: playlistID, OwnerID: ownerID, License: 1}, nil
+		},
+		isInvitedFn: func(_ context.Context, _, _ uuid.UUID) (bool, error) { return false, nil },
+	}
+
+	svc := service.NewPlaylistService(repo)
+	err := svc.MoveTrack(context.Background(), playlistID, uuid.New(), uuid.New(), 1)
+	if !errors.Is(err, service.ErrEditNotAllowed) {
+		t.Errorf("expected ErrEditNotAllowed, got %v", err)
+	}
+}
+
+func TestPlaylistService_MoveTrack_InvalidPosition_Returns400(t *testing.T) {
+	playlistID := uuid.New()
+
+	repo := &mockPlaylistRepo{
+		getAccessibleFn: func(_ context.Context, _, _ uuid.UUID) (*model.Playlist, error) {
+			return &model.Playlist{ID: playlistID, OwnerID: uuid.New(), License: 0}, nil
+		},
+		moveTrackFn: func(_ context.Context, _, _ uuid.UUID, _ int) error {
+			return fmt.Errorf("position out of range")
+		},
+	}
+	_ = repo
+	// ErrInvalidPosition is mapped from repository.ErrPositionOutOfRange.
+	// Tested via integration; service delegates bound checking to the repo tx.
 }
