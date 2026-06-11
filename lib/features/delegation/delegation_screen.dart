@@ -20,24 +20,27 @@ class DelegationScreen extends ConsumerWidget {
         title: 'Delegation',
         state: connState,
         onRetry: () => ref.read(wsProvider(_hubPath).notifier).reconnect(),
-        child: Column(
-          children: [
-            const TabBar(
-              indicatorColor: Colors.blue,
-              tabs: [
-                Tab(icon: Icon(Icons.devices), text: 'My Devices'),
-                Tab(icon: Icon(Icons.assignment_ind), text: 'Delegated to Me'),
-              ],
-            ),
-            Expanded(
-              child: TabBarView(
-                children: [
-                  const MyDevicesTab(),
-                  const DelegatedToMeTab(),
+        child: Padding(
+          padding: const EdgeInsets.all(8.0), // Safely wrap child in Padding instead of WsShell
+          child: Column(
+            children: [
+              const TabBar(
+                indicatorColor: Colors.blue,
+                tabs: [
+                  Tab(icon: Icon(Icons.devices), text: 'My Devices'),
+                  Tab(icon: Icon(Icons.assignment_ind), text: 'Delegated to Me'),
                 ],
               ),
-            ),
-          ],
+              Expanded(
+                child: TabBarView(
+                  children: [
+                    const MyDevicesTab(),
+                    const DelegatedToMeTab(),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
