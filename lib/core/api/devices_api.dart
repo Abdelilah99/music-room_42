@@ -33,6 +33,18 @@ class DevicesApi {
   Future<void> delete(String id) async {
     await _client.dio.delete('/api/v1/devices/$id');
   }
+
+  // POST /devices/:id/command -> relays a playback command to the device's
+  // WebSocket hub. `value` is only sent for the "volume" action (0-100).
+  Future<void> sendCommand(
+    String id, {
+    required String action,
+    int? value,
+  }) async {
+    final data = <String, dynamic>{'action': action};
+    if (value != null) data['value'] = value;
+    await _client.dio.post('/api/v1/devices/$id/command', data: data);
+  }
 }
 
 final devicesApiProvider = Provider<DevicesApi>(
