@@ -1,9 +1,11 @@
 package handler
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 
+	"music-room/internal/hub"
 	"music-room/internal/model"
 	"music-room/internal/service"
 
@@ -11,12 +13,29 @@ import (
 	"github.com/google/uuid"
 )
 
-type PlaylistHandler struct {
-	svc service.PlaylistService
+type playlistTrackAdded struct {
+	Type  string               `json:"type"`
+	Track *model.PlaylistTrack `json:"track"`
 }
 
-func NewPlaylistHandler(svc service.PlaylistService) *PlaylistHandler {
-	return &PlaylistHandler{svc: svc}
+type playlistTrackRemoved struct {
+	Type    string `json:"type"`
+	TrackID string `json:"track_id"`
+}
+
+type playlistTrackMoved struct {
+	Type     string `json:"type"`
+	TrackID  string `json:"track_id"`
+	Position int    `json:"position"`
+}
+
+type PlaylistHandler struct {
+	svc        service.PlaylistService
+	hubManager *hub.HubManager
+}
+
+func NewPlaylistHandler(svc service.PlaylistService, hubManager *hub.HubManager) *PlaylistHandler {
+	return &PlaylistHandler{svc: svc, hubManager: hubManager}
 }
 
 func (h *PlaylistHandler) Create(c *gin.Context) {
@@ -186,6 +205,7 @@ func (h *PlaylistHandler) AddTrack(c *gin.Context) {
 		return
 	}
 
+	h.broadcast(playlistID.String(), playlistTrackAdded{Type: "track_added", Track: track})
 	c.JSON(http.StatusCreated, track)
 }
 
@@ -212,6 +232,7 @@ func (h *PlaylistHandler) RemoveTrack(c *gin.Context) {
 		return
 	}
 
+	h.broadcast(playlistID.String(), playlistTrackRemoved{Type: "track_removed", TrackID: trackID.String()})
 	c.JSON(http.StatusOK, gin.H{"message": "track removed"})
 }
 
@@ -244,7 +265,44 @@ func (h *PlaylistHandler) MoveTrack(c *gin.Context) {
 		return
 	}
 
+	h.broadcast(playlistID.String(), playlistTrackMoved{Type: "track_moved", TrackID: trackID.String(), Position: req.Position})
 	c.JSON(http.StatusOK, gin.H{"message": "track moved"})
+}
+
+// ServeWS upgrades to WebSocket for the playlist's real-time hub. Only users
+// who can access the playlist (owner, invited, or public) are allowed in.
+func (h *PlaylistHandler) ServeWS(c *gin.Context) {
+	callerID, ok := extractCallerID(c)
+	if !ok {
+		return
+	}
+
+	playlistID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "playlist not found"})
+		return
+	}
+
+	if _, err := h.svc.Get(c.Request.Context(), playlistID, callerID); err != nil {
+		h.handleServiceError(c, err)
+		return
+	}
+
+	hub.ServeWS(h.hubManager, playlistID.String(), c)
+}
+
+// broadcast serializes event and delivers it to every WebSocket client on this
+// playlist's hub. Best-effort: if nobody is watching, the hub does not exist
+// and the call is a no-op.
+func (h *PlaylistHandler) broadcast(playlistID string, event any) {
+	if h.hubManager == nil || !h.hubManager.HasHub(playlistID) {
+		return
+	}
+	payload, err := json.Marshal(event)
+	if err != nil {
+		return
+	}
+	h.hubManager.Broadcast(playlistID, payload)
 }
 
 func (h *PlaylistHandler) handleServiceError(c *gin.Context, err error) {

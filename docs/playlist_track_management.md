@@ -75,6 +75,28 @@ Moves the track to the given position and shifts all affected tracks to maintain
 
 ---
 
+## Real-time WebSocket
+
+```
+GET /api/v1/playlists/:id/ws?token=<jwt>
+```
+
+Upgrades to a WebSocket connection scoped to a single playlist. After a successful upgrade, the server pushes an event frame to every connected client whenever a track is added, removed, or moved.
+
+**Authentication:** pass the JWT as the `token` query parameter (browsers cannot set `Authorization` headers on WebSocket upgrades). The server also accepts a `Bearer` header for native clients. Unauthenticated or unauthorized connections are rejected before the upgrade with `401` or `403`.
+
+**Events received by clients**
+
+| Event type | Payload |
+|------------|---------|
+| `track_added` | `{ "type": "track_added", "track": { ...PlaylistTrack } }` |
+| `track_removed` | `{ "type": "track_removed", "track_id": "<uuid>" }` |
+| `track_moved` | `{ "type": "track_moved", "track_id": "<uuid>", "position": N }` |
+
+The hub for a playlist is created on the first client connection and destroyed when the last client disconnects, so there are no idle goroutine leaks.
+
+---
+
 ## Concurrency
 
 The `PATCH position` endpoint runs inside a `SERIALIZABLE` transaction. Postgres will serialise concurrent moves on the same playlist and retry any transaction that would produce a non-serializable result. This guarantees the final position order is always consistent with no skipped or duplicate positions, regardless of how many clients reorder simultaneously.
