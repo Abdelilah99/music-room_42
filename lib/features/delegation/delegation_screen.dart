@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:music_room/core/api/web_socket_service.dart';
 import 'package:music_room/core/widgets/ws_shell.dart';
-import 'package:music_room/core/models/device.dart'; // Import official model from dev
+import 'package:music_room/core/models/device.dart'; // Official shared model from dev
 import 'package:music_room/features/delegation/delegation_provider.dart';
 
 class DelegationScreen extends ConsumerWidget {
@@ -98,7 +98,6 @@ class MyDevicesTab extends ConsumerWidget {
     final String friendId = selectedFriend['id']?.toString() ?? selectedFriend['user_id']?.toString() ?? '';
     final String friendEmail = selectedFriend['email']?.toString() ?? 'Selected Friend';
 
-    // UI Verification Rule: Check replacement status using the official dev branch model helpers
     if (device.isDelegated) {
       final confirmReplacement = await showDialog<bool>(
         context: context,
@@ -145,7 +144,7 @@ class MyDevicesTab extends ConsumerWidget {
           itemCount: devices.length,
           itemBuilder: (context, index) {
             final device = devices[index];
-            final isDelegated = device.isDelegated; // Uses clean official getter from dev branch
+            final isDelegated = device.isDelegated;
 
             return Card(
               margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
