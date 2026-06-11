@@ -1,10 +1,13 @@
 import 'dart:async';
 
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:music_room/core/api/event_api.dart';
+import 'package:music_room/core/api/events_api.dart';
 import 'package:music_room/core/api/web_socket_service.dart';
 import 'package:music_room/core/models/queue_track.dart';
+import 'package:music_room/core/widgets/music_search_sheet.dart';
 import 'package:music_room/features/track_vote/event_queue_provider.dart';
 
 class EventDetailScreen extends ConsumerStatefulWidget {
@@ -26,6 +29,8 @@ class _EventDetailScreenState extends ConsumerState<EventDetailScreen> {
 
   // Tracks whose vote POST is currently in flight — disables their button.
   final _votingTracks = <String>{};
+
+  bool _suggesting = false;
 
   @override
   void initState() {
@@ -52,6 +57,38 @@ class _EventDetailScreenState extends ConsumerState<EventDetailScreen> {
     final tracks = parseQueueUpdate(raw);
     if (tracks != null) {
       ref.read(eventQueueProvider(widget.eventId).notifier).applyUpdate(tracks);
+    }
+  }
+
+  Future<void> _handleSuggest() async {
+    final track = await showMusicSearchSheet(context);
+    if (track == null || !mounted) return;
+    setState(() => _suggesting = true);
+    try {
+      await ref.read(eventsApiProvider).suggestTrack(
+            widget.eventId,
+            externalId: track.externalId,
+            title: track.title,
+            artist: track.artist,
+          );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Track added to queue')),
+        );
+      }
+    } on DioException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            e.response?.statusCode == 409
+                ? 'Track is already in the queue'
+                : 'Failed to add track, please try again',
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _suggesting = false);
     }
   }
 
@@ -120,6 +157,17 @@ class _EventDetailScreenState extends ConsumerState<EventDetailScreen> {
             child: _WsDot(state: connState),
           ),
         ],
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: _suggesting ? null : _handleSuggest,
+        child: _suggesting
+            ? const SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(
+                    strokeWidth: 2, color: Colors.white),
+              )
+            : const Icon(Icons.add),
       ),
       body: Column(
         children: [
