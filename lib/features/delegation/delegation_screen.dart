@@ -1,10 +1,8 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:dio/dio.dart';
 import 'package:music_room/core/api/web_socket_service.dart';
 import 'package:music_room/core/widgets/ws_shell.dart';
-import 'package:music_room/core/models/device.dart'; // Official shared model from dev
+import 'package:music_room/core/models/device.dart';
 import 'package:music_room/features/delegation/delegation_provider.dart';
 
 class DelegationScreen extends ConsumerWidget {
@@ -59,10 +57,9 @@ class MyDevicesTab extends ConsumerWidget {
       builder: (context) => Consumer(
         builder: (context, ref, child) {
           final friendsState = ref.watch(friendsProvider);
-          // Swapped SizedBox for Container to safely use the padding parameter
           return Container(
             height: MediaQuery.of(context).size.height * 0.5,
-            padding: const EdgeInsets.all(16.0), 
+            padding: const EdgeInsets.all(16.0),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
