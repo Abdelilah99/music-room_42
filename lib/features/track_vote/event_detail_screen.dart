@@ -71,6 +71,7 @@ class _EventDetailScreenState extends ConsumerState<EventDetailScreen> {
             title: track.title,
             artist: track.artist,
           );
+      ref.invalidate(eventQueueProvider(widget.eventId));
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Track added to queue')),
