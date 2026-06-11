@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -41,6 +42,10 @@ class DeviceDetailScreen extends ConsumerStatefulWidget {
 class _DeviceDetailScreenState extends ConsumerState<DeviceDetailScreen> {
   String get _wsPath => '/api/v1/devices/${widget.deviceId}/ws';
 
+  // Held so it can be cancelled in dispose(); otherwise a frame can arrive
+  // after teardown and write to a provider that is already gone.
+  StreamSubscription<dynamic>? _wsSub;
+
   @override
   void initState() {
     super.initState();
@@ -49,12 +54,18 @@ class _DeviceDetailScreenState extends ConsumerState<DeviceDetailScreen> {
     if (widget.isOwner) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
-        ref
+        _wsSub = ref
             .read(wsProvider(_wsPath).notifier)
             .messageStream
             .listen(_onWsMessage);
       });
     }
+  }
+
+  @override
+  void dispose() {
+    _wsSub?.cancel();
+    super.dispose();
   }
 
   void _onWsMessage(dynamic raw) {
@@ -74,9 +85,15 @@ class _DeviceDetailScreenState extends ConsumerState<DeviceDetailScreen> {
   }
 
   Future<void> _send(String action, {int? value}) async {
+    // The owner normally relies on the WS echo to update its state (single
+    // source of truth). But if the socket is down, no echo will arrive, so
+    // apply locally to keep the owner's own controls responsive. A delegate
+    // always applies locally (it never opens the socket).
+    final socketUp = widget.isOwner &&
+        ref.read(wsProvider(_wsPath)) == WsConnectionState.connected;
     final error = await ref
         .read(deviceControlProvider(widget.deviceId).notifier)
-        .sendCommand(action, value: value, applyLocally: !widget.isOwner);
+        .sendCommand(action, value: value, applyLocally: !socketUp);
     if (!mounted || error == null) return;
     AppSnackBar.show(context, message: error, type: SnackBarType.error);
   }
