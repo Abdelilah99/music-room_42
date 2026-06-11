@@ -26,6 +26,11 @@ class EventsNotifier extends AsyncNotifier<List<Event>> {
   }
 }
 
+// Fetches a single event by id. autoDispose so navigating away re-fetches on return.
+final eventByIdProvider = FutureProvider.autoDispose.family<Event, String>(
+  (ref, eventId) => ref.read(eventsApiProvider).get(eventId),
+);
+
 // Resolves an owner's display name from their id. Riverpod caches per id, so
 // each distinct owner in the list is fetched only once. Falls back to a short
 // id fragment if the profile cannot be loaded.

@@ -227,6 +227,27 @@ func TestEventService_Invite_Owner(t *testing.T) {
 	}
 }
 
+func TestEventService_Invite_AlreadyInvited_Returns409(t *testing.T) {
+	ownerID := uuid.New()
+	eventID := uuid.New()
+	uniqueErr := &pgconn.PgError{Code: "23505"}
+
+	repo := &mockEventRepo{
+		getByIDOwnerFn: func(_ context.Context, _, _ uuid.UUID) (*model.Event, error) {
+			return newEvent(ownerID), nil
+		},
+		addInviteFn: func(_ context.Context, _, _ uuid.UUID) error {
+			return uniqueErr
+		},
+	}
+
+	svc := service.NewEventService(repo)
+	err := svc.Invite(context.Background(), eventID, ownerID, uuid.New())
+	if !errors.Is(err, service.ErrAlreadyInvited) {
+		t.Errorf("expected ErrAlreadyInvited, got %v", err)
+	}
+}
+
 func TestEventService_Invite_NonExistentUser_Returns404(t *testing.T) {
 	ownerID := uuid.New()
 	eventID := uuid.New()

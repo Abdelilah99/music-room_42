@@ -6,9 +6,16 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:music_room/core/api/event_api.dart';
 import 'package:music_room/core/api/events_api.dart';
 import 'package:music_room/core/api/web_socket_service.dart';
+import 'package:music_room/core/models/event.dart';
 import 'package:music_room/core/models/queue_track.dart';
+import 'package:music_room/core/models/user.dart';
+import 'package:music_room/core/services/location_service.dart';
+import 'package:music_room/core/widgets/friend_picker.dart';
 import 'package:music_room/core/widgets/music_search_sheet.dart';
+import 'package:music_room/features/profile/profile_provider.dart';
 import 'package:music_room/features/track_vote/event_queue_provider.dart';
+import 'package:music_room/features/track_vote/events_provider.dart';
+import 'package:music_room/shared/widgets/snackbar_helper.dart';
 
 class EventDetailScreen extends ConsumerStatefulWidget {
   const EventDetailScreen({super.key, required this.eventId});
@@ -23,21 +30,15 @@ class _EventDetailScreenState extends ConsumerState<EventDetailScreen> {
   late final String _wsPath;
   StreamSubscription<dynamic>? _wsSub;
 
-  // True once the WS has connected at least once; gates the reconnecting banner
-  // so it doesn't fire during the initial handshake.
   bool _everConnected = false;
-
-  // Tracks whose vote POST is currently in flight — disables their button.
   final _votingTracks = <String>{};
-
   bool _suggesting = false;
+  bool _inviting = false;
 
   @override
   void initState() {
     super.initState();
     _wsPath = '/api/v1/ws/${widget.eventId}';
-    // Set up the stream subscription after the first build so ref.watch has
-    // already registered wsProvider as a dependency (keeping it alive).
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _wsSub ??= ref
@@ -73,58 +74,55 @@ class _EventDetailScreenState extends ConsumerState<EventDetailScreen> {
           );
       ref.invalidate(eventQueueProvider(widget.eventId));
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Track added to queue')),
-        );
+        AppSnackBar.show(context, message: 'Track added to queue');
       }
     } on DioException catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            e.response?.statusCode == 409
-                ? 'Track is already in the queue'
-                : 'Failed to add track, please try again',
-          ),
-        ),
+      AppSnackBar.show(
+        context,
+        message: e.response?.statusCode == 409
+            ? 'Track is already in the queue'
+            : 'Failed to add track, please try again',
+        type: SnackBarType.error,
       );
     } finally {
       if (mounted) setState(() => _suggesting = false);
     }
   }
 
-  Future<void> _handleUpvote(String trackId) async {
+  Future<void> _handleUpvote(String trackId, Event event) async {
     if (_votingTracks.contains(trackId)) return;
+
+    double? lat, lng;
+    if (event.license == 2) {
+      final pos = await ref.read(locationServiceProvider).currentPosition();
+      if (!mounted) return;
+      if (pos == null) {
+        AppSnackBar.show(
+          context,
+          message: 'Location access is required to vote at this event. Please enable location in settings.',
+          type: SnackBarType.error,
+        );
+        return;
+      }
+      lat = pos.lat;
+      lng = pos.lng;
+    }
+
     setState(() => _votingTracks.add(trackId));
     try {
-      final success = await ref
+      final errorCode = await ref
           .read(eventQueueProvider(widget.eventId).notifier)
-          .upvote(trackId);
-      if (!success && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            backgroundColor: Colors.orange,
-            behavior: SnackBarBehavior.floating,
-            content: Row(
-              children: const [
-                Icon(Icons.warning_amber_rounded, color: Colors.white),
-                SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    'You have already voted for this track',
-                    style: TextStyle(
-                        color: Colors.white, fontWeight: FontWeight.w500),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
+          .upvote(trackId, lat: lat, lng: lng);
+      if (errorCode != null && mounted) {
+        _showVoteError(errorCode, event);
       }
     } catch (_) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Vote failed, please try again')),
+        AppSnackBar.show(
+          context,
+          message: 'Vote failed, please try again',
+          type: SnackBarType.error,
         );
       }
     } finally {
@@ -132,13 +130,59 @@ class _EventDetailScreenState extends ConsumerState<EventDetailScreen> {
     }
   }
 
+  void _showVoteError(String code, Event event) {
+    final String message;
+    switch (code) {
+      case 'NOT_INVITED':
+        message = 'You are not invited to vote in this event';
+      case 'OUT_OF_RANGE':
+        message = 'You must be at the event location to vote';
+      case 'VOTING_CLOSED':
+        final now = DateTime.now();
+        final start = event.voteStart;
+        if (start != null && now.isBefore(start)) {
+          message = 'Voting is not open yet';
+        } else {
+          message = 'Voting has ended';
+        }
+      default:
+        if (code.contains('already voted')) {
+          message = 'You have already voted for this track';
+        } else {
+          message = 'Vote failed, please try again';
+        }
+    }
+    AppSnackBar.show(context, message: message, type: SnackBarType.warning);
+  }
+
+  Future<void> _handleInvite() async {
+    final User? friend = await showFriendPicker(context);
+    if (friend == null || !mounted) return;
+    setState(() => _inviting = true);
+    try {
+      await ref.read(eventsApiProvider).invite(widget.eventId, friend.id);
+      if (mounted) {
+        AppSnackBar.show(context, message: '${friend.displayName} invited successfully');
+      }
+    } on DioException catch (e) {
+      if (!mounted) return;
+      final code = (e.response?.data as Map<String, dynamic>?)?['error'] as String?;
+      final message = code == 'ALREADY_INVITED'
+          ? '${friend.displayName} is already invited'
+          : 'Failed to invite ${friend.displayName}, please try again';
+      AppSnackBar.show(context, message: message, type: SnackBarType.error);
+    } finally {
+      if (mounted) setState(() => _inviting = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final connState = ref.watch(wsProvider(_wsPath));
     final queueAsync = ref.watch(eventQueueProvider(widget.eventId));
+    final eventAsync = ref.watch(eventByIdProvider(widget.eventId));
+    final myProfileAsync = ref.watch(myProfileProvider);
 
-    // Record the first successful connection so the banner only shows on
-    // subsequent reconnects, not during the initial handshake.
     ref.listen<WsConnectionState>(wsProvider(_wsPath), (_, next) {
       if (next == WsConnectionState.connected && !_everConnected) {
         setState(() => _everConnected = true);
@@ -149,27 +193,50 @@ class _EventDetailScreenState extends ConsumerState<EventDetailScreen> {
         (connState == WsConnectionState.connecting ||
             connState == WsConnectionState.error);
 
+    final event = eventAsync.asData?.value;
+    final currentUserId = myProfileAsync.asData?.value.id;
+    final isOwner = event != null && currentUserId != null && event.ownerId == currentUserId;
+    // canInteract: event loaded OK → user has access; hide controls if not
+    final canInteract = event != null;
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Live Queue'),
+        title: Text(event?.name ?? 'Live Queue'),
         actions: [
+          if (isOwner)
+            _inviting
+                ? const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 16),
+                    child: SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  )
+                : IconButton(
+                    icon: const Icon(Icons.person_add_outlined),
+                    tooltip: 'Invite a friend',
+                    onPressed: _handleInvite,
+                  ),
           Padding(
             padding: const EdgeInsets.only(right: 12),
             child: _WsDot(state: connState),
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _suggesting ? null : _handleSuggest,
-        child: _suggesting
-            ? const SizedBox(
-                width: 24,
-                height: 24,
-                child: CircularProgressIndicator(
-                    strokeWidth: 2, color: Colors.white),
-              )
-            : const Icon(Icons.add),
-      ),
+      floatingActionButton: canInteract
+          ? FloatingActionButton(
+              onPressed: _suggesting ? null : _handleSuggest,
+              tooltip: 'Suggest a track',
+              child: _suggesting
+                  ? const SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                    )
+                  : const Icon(Icons.add),
+            )
+          : null,
       body: Column(
         children: [
           AnimatedSwitcher(
@@ -179,33 +246,29 @@ class _EventDetailScreenState extends ConsumerState<EventDetailScreen> {
                     key: const ValueKey('banner'),
                     isError: connState == WsConnectionState.error,
                     onRetry: connState == WsConnectionState.error
-                        ? () =>
-                            ref.read(wsProvider(_wsPath).notifier).reconnect()
+                        ? () => ref.read(wsProvider(_wsPath).notifier).reconnect()
                         : null,
                   )
                 : const SizedBox.shrink(key: ValueKey('no-banner')),
           ),
           Expanded(
             child: queueAsync.when(
-              loading: () =>
-                  const Center(child: CircularProgressIndicator()),
+              loading: () => const Center(child: CircularProgressIndicator()),
               error: (_, _) => Center(
                 child: Padding(
                   padding: const EdgeInsets.all(16),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(Icons.error_outline,
-                          size: 48, color: Colors.redAccent),
+                      const Icon(Icons.lock_outline, size: 48, color: Colors.grey),
                       const SizedBox(height: 16),
                       const Text(
-                        'Failed to load the queue. Check your connection.',
+                        'Queue unavailable. You may not have access to this event.',
                         textAlign: TextAlign.center,
                       ),
                       const SizedBox(height: 16),
                       ElevatedButton.icon(
-                        onPressed: () => ref
-                            .invalidate(eventQueueProvider(widget.eventId)),
+                        onPressed: () => ref.invalidate(eventQueueProvider(widget.eventId)),
                         icon: const Icon(Icons.refresh),
                         label: const Text('Retry'),
                       ),
@@ -220,8 +283,7 @@ class _EventDetailScreenState extends ConsumerState<EventDetailScreen> {
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(Icons.queue_music_outlined,
-                                size: 64, color: Colors.grey),
+                            Icon(Icons.queue_music_outlined, size: 64, color: Colors.grey),
                             SizedBox(height: 16),
                             Text(
                               'No tracks in the queue yet',
@@ -239,7 +301,9 @@ class _EventDetailScreenState extends ConsumerState<EventDetailScreen> {
                         return _TrackTile(
                           track: track,
                           isVoting: _votingTracks.contains(track.id),
-                          onUpvote: () => _handleUpvote(track.id),
+                          onUpvote: canInteract
+                              ? () => _handleUpvote(track.id, event)
+                              : null,
                         );
                       },
                     ),
@@ -287,10 +351,8 @@ class _ReconnectBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final bgColor = isError ? scheme.errorContainer : scheme.tertiaryContainer;
-    final fgColor =
-        isError ? scheme.onErrorContainer : scheme.onTertiaryContainer;
-    final label =
-        isError ? 'Connection lost — live updates paused' : 'Reconnecting…';
+    final fgColor = isError ? scheme.onErrorContainer : scheme.onTertiaryContainer;
+    final label = isError ? 'Connection lost — live updates paused' : 'Reconnecting…';
 
     return Material(
       color: bgColor,
@@ -302,10 +364,7 @@ class _ReconnectBanner extends StatelessWidget {
               SizedBox(
                 width: 14,
                 height: 14,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: fgColor,
-                ),
+                child: CircularProgressIndicator(strokeWidth: 2, color: fgColor),
               )
             else
               Icon(Icons.wifi_off, size: 16, color: fgColor),
@@ -313,10 +372,7 @@ class _ReconnectBanner extends StatelessWidget {
             Expanded(
               child: Text(
                 label,
-                style: Theme.of(context)
-                    .textTheme
-                    .bodySmall
-                    ?.copyWith(color: fgColor),
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(color: fgColor),
               ),
             ),
             if (onRetry != null)
@@ -341,7 +397,7 @@ class _TrackTile extends StatelessWidget {
 
   final QueueTrack track;
   final bool isVoting;
-  final VoidCallback onUpvote;
+  final VoidCallback? onUpvote;
 
   @override
   Widget build(BuildContext context) {
@@ -369,17 +425,19 @@ class _TrackTile extends StatelessWidget {
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
       ),
-      trailing: isVoting
-          ? const SizedBox(
-              width: 24,
-              height: 24,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            )
-          : IconButton(
-              icon: const Icon(Icons.thumb_up_alt_outlined),
-              onPressed: onUpvote,
-              tooltip: 'Upvote',
-            ),
+      trailing: onUpvote == null
+          ? null
+          : isVoting
+              ? const SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : IconButton(
+                  icon: const Icon(Icons.thumb_up_alt_outlined),
+                  onPressed: onUpvote,
+                  tooltip: 'Upvote',
+                ),
     );
   }
 }
