@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:music_room/core/api/web_socket_service.dart';
-import 'package:music_room/core/widgets/ws_shell.dart';
 import 'package:music_room/core/models/device.dart';
 import 'package:music_room/core/models/user.dart';
 import 'package:music_room/core/widgets/friend_picker.dart';
@@ -11,39 +9,26 @@ import 'package:music_room/features/delegation/delegation_provider.dart';
 class DelegationScreen extends ConsumerWidget {
   const DelegationScreen({super.key});
 
-  static const _hubPath = '/api/v1/ws/delegation';
-
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final connState = ref.watch(wsProvider(_hubPath));
-
     return DefaultTabController(
       length: 2,
-      child: WsShell(
-        title: 'Delegation',
-        state: connState,
-        onRetry: () => ref.read(wsProvider(_hubPath).notifier).reconnect(),
-        child: Padding(
-          padding: const EdgeInsets.all(8.0),
-          child: Column(
-            children: [
-              const TabBar(
-                indicatorColor: Colors.blue,
-                tabs: [
-                  Tab(icon: Icon(Icons.devices), text: 'My Devices'),
-                  Tab(icon: Icon(Icons.assignment_ind), text: 'Delegated to Me'),
-                ],
-              ),
-              Expanded(
-                child: TabBarView(
-                  children: [
-                    const MyDevicesTab(),
-                    const DelegatedToMeTab(),
-                  ],
-                ),
-              ),
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Delegation'),
+          bottom: const TabBar(
+            indicatorColor: Colors.blue,
+            tabs: [
+              Tab(icon: Icon(Icons.devices), text: 'My Devices'),
+              Tab(icon: Icon(Icons.assignment_ind), text: 'Delegated to Me'),
             ],
           ),
+        ),
+        body: const TabBarView(
+          children: [
+            MyDevicesTab(),
+            DelegatedToMeTab(),
+          ],
         ),
       ),
     );
