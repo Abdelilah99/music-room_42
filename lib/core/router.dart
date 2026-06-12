@@ -86,6 +86,20 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/delegation',
             builder: (_, _) => const DelegationScreen(),
+            routes: [
+              // A delegate opens a device that was delegated to them. They send
+              // commands but do not own the device's socket (isOwner: false).
+              GoRoute(
+                path: 'control/:id',
+                builder: (_, state) => DeviceDetailScreen(
+                  deviceId: state.pathParameters['id']!,
+                  isOwner: false,
+                  ownerEmail: state.extra is String
+                      ? state.extra as String
+                      : null,
+                ),
+              ),
+            ],
           ),
           GoRoute(
             path: '/playlists',
