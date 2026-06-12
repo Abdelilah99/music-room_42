@@ -13,6 +13,7 @@ import 'package:music_room/core/services/location_service.dart';
 import 'package:music_room/core/widgets/friend_picker.dart';
 import 'package:music_room/core/widgets/music_search_sheet.dart';
 import 'package:music_room/features/profile/profile_provider.dart';
+import 'package:music_room/features/track_vote/event_player_provider.dart';
 import 'package:music_room/features/track_vote/event_queue_provider.dart';
 import 'package:music_room/features/track_vote/events_provider.dart';
 import 'package:music_room/shared/widgets/snackbar_helper.dart';
@@ -290,6 +291,8 @@ class _EventDetailScreenState extends ConsumerState<EventDetailScreen> {
                   : const Icon(Icons.add),
             )
           : null,
+      bottomNavigationBar:
+          canInteract ? _NowPlayingBar(eventId: widget.eventId) : null,
       body: Column(
         children: [
           AnimatedSwitcher(
@@ -557,6 +560,88 @@ class _TrackTile extends StatelessWidget {
                   tooltip: 'Upvote',
                 )
           : null,
+    );
+  }
+}
+
+// Mini-player pinned at the bottom of the event screen. Plays the live voted
+// queue (highest-voted unplayed track) and advances automatically.
+class _NowPlayingBar extends ConsumerWidget {
+  const _NowPlayingBar({required this.eventId});
+
+  final String eventId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final player = ref.watch(eventPlayerProvider(eventId));
+    final queue = ref.watch(eventQueueProvider(eventId)).value ?? const [];
+    final notifier = ref.read(eventPlayerProvider(eventId).notifier);
+    final scheme = Theme.of(context).colorScheme;
+
+    // Nothing queued and nothing playing — hide the bar entirely.
+    if (queue.isEmpty && !player.isActive) return const SizedBox.shrink();
+
+    final title = player.isActive ? (player.title ?? '') : 'Tap play to start';
+    final subtitle = player.isActive
+        ? (player.artist ?? '')
+        : '${queue.length} track${queue.length == 1 ? '' : 's'} queued';
+
+    return Material(
+      elevation: 8,
+      color: scheme.surfaceContainerHigh,
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          child: Row(
+            children: [
+              Icon(Icons.music_note, color: scheme.primary),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                    Text(
+                      subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                onPressed: player.loading ? null : () => notifier.toggle(),
+                color: scheme.primary,
+                icon: player.loading
+                    ? const SizedBox(
+                        width: 22,
+                        height: 22,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : Icon(
+                        player.playing
+                            ? Icons.pause_circle_filled
+                            : Icons.play_circle_filled,
+                        size: 34,
+                      ),
+              ),
+              IconButton(
+                onPressed: queue.isEmpty ? null : () => notifier.skip(),
+                icon: const Icon(Icons.skip_next),
+                tooltip: 'Skip',
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
