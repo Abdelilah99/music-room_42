@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:music_room/core/api/music_api.dart';
@@ -47,9 +49,17 @@ class EventPlayerNotifier extends Notifier<EventPlayerState> {
 
   final AudioPlayer _player = AudioPlayer();
   final Set<String> _playedIds = {};
+  // Kept in sync with the queue provider so auto-advance always picks from the
+  // current, vote-sorted order rather than a stale read.
+  List<QueueTrack> _liveQueue = const [];
 
   @override
   EventPlayerState build() {
+    _liveQueue = ref.read(eventQueueProvider(_eventId)).value ?? const [];
+    ref.listen(eventQueueProvider(_eventId), (_, next) {
+      _liveQueue = next.value ?? const [];
+    });
+
     final sub = _player.processingStateStream.listen((s) {
       if (s == ProcessingState.completed) _onCompleted();
     });
@@ -60,12 +70,9 @@ class EventPlayerNotifier extends Notifier<EventPlayerState> {
     return const EventPlayerState();
   }
 
-  List<QueueTrack> get _queue =>
-      ref.read(eventQueueProvider(_eventId)).value ?? const [];
-
   // The next track to play: highest-voted one not yet played this session.
   QueueTrack? _nextTrack() {
-    for (final t in _queue) {
+    for (final t in _liveQueue) {
       if (!_playedIds.contains(t.id)) return t;
     }
     return null;
@@ -80,8 +87,9 @@ class EventPlayerNotifier extends Notifier<EventPlayerState> {
       return;
     }
     if (state.trackId != null) {
-      await _player.play();
+      // play() resolves only at end-of-track, so it must not be awaited.
       state = state.copyWith(playing: true);
+      unawaited(_player.play());
       return;
     }
     await _playNext();
@@ -122,8 +130,11 @@ class EventPlayerNotifier extends Notifier<EventPlayerState> {
         return;
       }
       await _player.setUrl(url);
-      await _player.play();
+      // play() resolves only at end-of-track, so start it without awaiting and
+      // mark the state playing immediately; auto-advance happens via the
+      // processingState 'completed' listener.
       state = state.copyWith(loading: false, playing: true);
+      unawaited(_player.play());
     } catch (_) {
       // Resolution or playback failed; skip this track and try the next.
       _playedIds.add(track.id);
