@@ -35,7 +35,7 @@ class _EventDetailScreenState extends ConsumerState<EventDetailScreen> {
   @override
   void initState() {
     super.initState();
-    _wsPath = '/api/v1/ws/${widget.eventId}';
+    _wsPath = '/api/v1/events/${widget.eventId}/ws';
     // Set up the stream subscription after the first build so ref.watch has
     // already registered wsProvider as a dependency (keeping it alive).
     WidgetsBinding.instance.addPostFrameCallback((_) {

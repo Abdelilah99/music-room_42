@@ -113,7 +113,7 @@ func main() {
 	// Event repositories and services
 	eventRepo := repository.NewEventRepository(pool)
 	eventSvc := service.NewEventService(eventRepo)
-	eventHandler := handler.NewEventHandler(eventSvc)
+	eventHandler := handler.NewEventHandler(eventSvc, hubManager)
 
 	// Track repositories and services
 	trackRepo := repository.NewTrackRepository(pool)
@@ -142,7 +142,7 @@ func main() {
 	globalLimit := getEnvOrDefault("RATE_LIMIT_GLOBAL", "100-M")
 	authLimit := getEnvOrDefault("RATE_LIMIT_AUTH", "10-M")
 
-	r := setupRouter(authHandler, jwtHandler, jwtService, profileHandler, friendHandler, musicHandler, googleHandler, hubManager, eventHandler, trackHandler, deviceHandler, delegHandler, commandHandler, playlistHandler, allowedOrigins, globalLimit, authLimit)
+	r := setupRouter(authHandler, jwtHandler, jwtService, profileHandler, friendHandler, musicHandler, googleHandler, eventHandler, trackHandler, deviceHandler, delegHandler, commandHandler, playlistHandler, allowedOrigins, globalLimit, authLimit)
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -164,7 +164,6 @@ func setupRouter(
 	friendHandler *handler.FriendHandler,
 	musicHandler *handler.MusicHandler,
 	googleHandler *auth.GoogleHandler,
-	hubManager *hub.HubManager,
 	eventHandler *handler.EventHandler,
 	trackHandler *handler.TrackHandler,
 	deviceHandler *handler.DeviceHandler,
@@ -239,14 +238,6 @@ func setupRouter(
 			music.GET("/search", musicHandler.Search)
 		}
 
-		ws := v1.Group("/ws")
-		ws.Use(jwtMiddleware.AuthenticateWS())
-		{
-			ws.GET("/:entityID", func(c *gin.Context) {
-				hub.ServeWS(hubManager, c.Param("entityID"), c)
-			})
-		}
-
 		devices := v1.Group("/devices")
 		devices.Use(jwtMiddleware.Authenticate())
 		{
@@ -279,6 +270,12 @@ func setupRouter(
 			events.GET("/:id/queue", trackHandler.GetQueue)
 			events.POST("/:id/tracks/:trackId/vote", trackHandler.Vote)
 			events.DELETE("/:id/tracks/:trackId", trackHandler.DeleteTrack)
+		}
+
+		eventWs := v1.Group("/events")
+		eventWs.Use(jwtMiddleware.AuthenticateWS())
+		{
+			eventWs.GET("/:id/ws", eventHandler.ServeWS)
 		}
 
 		playlists := v1.Group("/playlists")
