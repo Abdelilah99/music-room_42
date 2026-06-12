@@ -303,6 +303,26 @@ func TestPlaylistService_Invite_NonExistentUser_Returns404(t *testing.T) {
 	}
 }
 
+func TestPlaylistService_Invite_AlreadyInvited_Returns409(t *testing.T) {
+	ownerID := uuid.New()
+	uniqueErr := &pgconn.PgError{Code: "23505"}
+
+	repo := &mockPlaylistRepo{
+		getByIDOwnerFn: func(_ context.Context, _, _ uuid.UUID) (*model.Playlist, error) {
+			return newPlaylist(ownerID), nil
+		},
+		addInviteFn: func(_ context.Context, _, _ uuid.UUID) error {
+			return uniqueErr
+		},
+	}
+
+	svc := service.NewPlaylistService(repo)
+	err := svc.Invite(context.Background(), uuid.New(), ownerID, uuid.New())
+	if !errors.Is(err, service.ErrAlreadyInvited) {
+		t.Errorf("expected ErrAlreadyInvited, got %v", err)
+	}
+}
+
 // --- AddTrack tests ---
 
 func TestPlaylistService_AddTrack_License0_AnyUserCanAdd(t *testing.T) {

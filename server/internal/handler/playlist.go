@@ -317,6 +317,8 @@ func (h *PlaylistHandler) handleServiceError(c *gin.Context, err error) {
 		c.JSON(http.StatusForbidden, gin.H{"code": "EDIT_NOT_ALLOWED", "error": err.Error()})
 	case errors.Is(err, service.ErrDuplicateTrack):
 		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+	case errors.Is(err, service.ErrAlreadyInvited):
+		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 	case errors.Is(err, service.ErrInvalidPosition):
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 	default:

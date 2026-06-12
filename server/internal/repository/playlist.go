@@ -129,7 +129,7 @@ func (r *playlistRepository) Delete(ctx context.Context, playlistID uuid.UUID) e
 
 func (r *playlistRepository) AddInvite(ctx context.Context, playlistID, userID uuid.UUID) error {
 	_, err := r.pool.Exec(ctx,
-		`INSERT INTO playlist_invites (playlist_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+		`INSERT INTO playlist_invites (playlist_id, user_id) VALUES ($1, $2)`,
 		playlistID, userID,
 	)
 	return err
