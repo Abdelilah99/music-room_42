@@ -54,10 +54,18 @@ class EventsApi {
     required String externalId,
     required String title,
     required String artist,
+    double? lat,
+    double? lng,
   }) async {
     await _client.dio.post(
       '/api/v1/events/$eventId/tracks',
-      data: {'external_id': externalId, 'title': title, 'artist': artist},
+      data: {
+        'external_id': externalId,
+        'title': title,
+        'artist': artist,
+        if (lat != null) 'lat': lat,
+        if (lng != null) 'lng': lng,
+      },
     );
   }
 

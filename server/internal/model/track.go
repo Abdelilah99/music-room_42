@@ -18,9 +18,11 @@ type Track struct {
 }
 
 type SuggestTrackRequest struct {
-	ExternalID string `json:"external_id" binding:"required"`
-	Title      string `json:"title" binding:"required"`
-	Artist     string `json:"artist" binding:"required"`
+	ExternalID string   `json:"external_id" binding:"required"`
+	Title      string   `json:"title" binding:"required"`
+	Artist     string   `json:"artist" binding:"required"`
+	Lat        *float64 `json:"lat"`
+	Lng        *float64 `json:"lng"`
 }
 
 type VoteRequest struct {

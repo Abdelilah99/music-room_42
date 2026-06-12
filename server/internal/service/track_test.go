@@ -444,6 +444,113 @@ func TestTrackService_Vote_License2_AllConditionsMet_Succeeds(t *testing.T) {
 	}
 }
 
+// --- suggest license enforcement tests ---
+
+func TestTrackService_Suggest_License1_NotInvited_Returns403(t *testing.T) {
+	eventID := uuid.New()
+	eventRepo := &mockEventRepoForTrack{
+		getAccessibleFn: func(_ context.Context, eID, _ uuid.UUID) (*model.Event, error) {
+			return license1Event(eID), nil
+		},
+		isInvitedFn: func(_ context.Context, _, _ uuid.UUID) (bool, error) { return false, nil },
+	}
+	svc := service.NewTrackService(eventRepo, &mockTrackRepo{})
+	_, err := svc.Suggest(context.Background(), eventID, uuid.New(), model.SuggestTrackRequest{ExternalID: "dz:1", Title: "T", Artist: "A"})
+	if !errors.Is(err, service.ErrNotInvited) {
+		t.Errorf("expected ErrNotInvited, got %v", err)
+	}
+}
+
+func TestTrackService_Suggest_License1_Invited_Succeeds(t *testing.T) {
+	eventID := uuid.New()
+	want := sampleTrack(eventID, uuid.New())
+	eventRepo := &mockEventRepoForTrack{
+		getAccessibleFn: func(_ context.Context, eID, _ uuid.UUID) (*model.Event, error) {
+			return license1Event(eID), nil
+		},
+		isInvitedFn: func(_ context.Context, _, _ uuid.UUID) (bool, error) { return true, nil },
+	}
+	trackRepo := &mockTrackRepo{
+		addFn: func(_ context.Context, _, _ uuid.UUID, _ model.SuggestTrackRequest) (*model.Track, error) { return want, nil },
+	}
+	got, err := service.NewTrackService(eventRepo, trackRepo).Suggest(context.Background(), eventID, uuid.New(), model.SuggestTrackRequest{ExternalID: "dz:1", Title: "T", Artist: "A"})
+	if err != nil {
+		t.Fatalf("expected success, got %v", err)
+	}
+	if got.ID != want.ID {
+		t.Errorf("expected track ID %s, got %s", want.ID, got.ID)
+	}
+}
+
+func TestTrackService_Suggest_License2_MissingCoords(t *testing.T) {
+	eventID := uuid.New()
+	now := time.Now()
+	eventRepo := &mockEventRepoForTrack{
+		getAccessibleFn: func(_ context.Context, eID, _ uuid.UUID) (*model.Event, error) {
+			return license2Event(eID, 48.8566, 2.3522, 10, now.Add(-time.Hour), now.Add(time.Hour)), nil
+		},
+	}
+	_, err := service.NewTrackService(eventRepo, &mockTrackRepo{}).Suggest(context.Background(), eventID, uuid.New(), model.SuggestTrackRequest{ExternalID: "dz:1", Title: "T", Artist: "A"})
+	if !errors.Is(err, service.ErrMissingCoords) {
+		t.Errorf("expected ErrMissingCoords, got %v", err)
+	}
+}
+
+func TestTrackService_Suggest_License2_OutOfRange(t *testing.T) {
+	eventID := uuid.New()
+	now := time.Now()
+	eventRepo := &mockEventRepoForTrack{
+		getAccessibleFn: func(_ context.Context, eID, _ uuid.UUID) (*model.Event, error) {
+			return license2Event(eID, 48.8566, 2.3522, 1, now.Add(-time.Hour), now.Add(time.Hour)), nil
+		},
+	}
+	lat, lng := 51.5074, -0.1278 // London
+	req := model.SuggestTrackRequest{ExternalID: "dz:1", Title: "T", Artist: "A", Lat: &lat, Lng: &lng}
+	_, err := service.NewTrackService(eventRepo, &mockTrackRepo{}).Suggest(context.Background(), eventID, uuid.New(), req)
+	if !errors.Is(err, service.ErrOutOfRange) {
+		t.Errorf("expected ErrOutOfRange, got %v", err)
+	}
+}
+
+func TestTrackService_Suggest_License2_VotingClosed(t *testing.T) {
+	eventID := uuid.New()
+	past := time.Now().Add(-2 * time.Hour)
+	eventRepo := &mockEventRepoForTrack{
+		getAccessibleFn: func(_ context.Context, eID, _ uuid.UUID) (*model.Event, error) {
+			return license2Event(eID, 48.8566, 2.3522, 10000, past.Add(-time.Hour), past), nil
+		},
+	}
+	lat, lng := 48.8566, 2.3522
+	req := model.SuggestTrackRequest{ExternalID: "dz:1", Title: "T", Artist: "A", Lat: &lat, Lng: &lng}
+	_, err := service.NewTrackService(eventRepo, &mockTrackRepo{}).Suggest(context.Background(), eventID, uuid.New(), req)
+	if !errors.Is(err, service.ErrVotingClosed) {
+		t.Errorf("expected ErrVotingClosed, got %v", err)
+	}
+}
+
+func TestTrackService_Suggest_License2_InRange_Succeeds(t *testing.T) {
+	eventID := uuid.New()
+	now := time.Now()
+	want := sampleTrack(eventID, uuid.New())
+	eventRepo := &mockEventRepoForTrack{
+		getAccessibleFn: func(_ context.Context, eID, _ uuid.UUID) (*model.Event, error) {
+			return license2Event(eID, 48.8566, 2.3522, 10000, now.Add(-time.Hour), now.Add(time.Hour)), nil
+		},
+	}
+	trackRepo := &mockTrackRepo{
+		addFn: func(_ context.Context, _, _ uuid.UUID, _ model.SuggestTrackRequest) (*model.Track, error) { return want, nil },
+	}
+	lat, lng := 48.8566, 2.3522
+	req := model.SuggestTrackRequest{ExternalID: "dz:1", Title: "T", Artist: "A", Lat: &lat, Lng: &lng}
+	got, err := service.NewTrackService(eventRepo, trackRepo).Suggest(context.Background(), eventID, uuid.New(), req)
+	if err != nil {
+		t.Fatalf("expected success, got %v", err)
+	}
+	if got.ID != want.ID {
+		t.Errorf("expected track ID %s, got %s", want.ID, got.ID)
+	}
+}
+
 // --- haversine tests ---
 
 func TestHaversineKm_ParisToBerlin(t *testing.T) {
