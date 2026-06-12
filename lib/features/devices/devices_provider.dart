@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart' show defaultTargetPlatform, TargetPlatform;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:music_room/core/api/api_client.dart';
 import 'package:music_room/core/api/devices_api.dart';
 import 'package:music_room/core/models/device.dart';
 import 'package:music_room/core/services/device_info_service.dart';

@@ -5,7 +5,6 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:music_room/core/services/token_storage.dart';
 import 'package:music_room/features/auth/auth_provider.dart';
-import 'package:music_room/core/api/api_client.dart';
 
 class _AuthInterceptor extends Interceptor {
   final TokenStorage _storage;
