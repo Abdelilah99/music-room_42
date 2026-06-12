@@ -40,9 +40,11 @@ class DevicesApi {
     String id, {
     required String action,
     int? value,
+    String? track,
   }) async {
     final data = <String, dynamic>{'action': action};
     if (value != null) data['value'] = value;
+    if (track != null) data['track'] = track;
     await _client.dio.post('/api/v1/devices/$id/command', data: data);
   }
 
