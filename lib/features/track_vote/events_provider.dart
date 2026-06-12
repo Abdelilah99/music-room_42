@@ -38,3 +38,8 @@ final ownerNameProvider =
     return ownerId.length >= 8 ? ownerId.substring(0, 8) : ownerId;
   }
 });
+
+// Fetches a single event by id. autoDispose ensures a fresh fetch each visit.
+final eventDetailProvider = FutureProvider.autoDispose.family<Event, String>(
+  (ref, eventId) => ref.read(eventsApiProvider).get(eventId),
+);

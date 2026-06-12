@@ -17,6 +17,7 @@ var (
 	ErrEventNotFound        = errors.New("event not found")
 	ErrNotEventOwner        = errors.New("only the event owner can perform this action")
 	ErrUserNotFound         = errors.New("user not found")
+	ErrAlreadyInvited       = errors.New("ALREADY_INVITED")
 	ErrInvalidLicenseConfig = errors.New("license 2 requires lat, lng, radius, vote_start and vote_end")
 )
 
@@ -97,6 +98,9 @@ func (s *eventService) Invite(ctx context.Context, eventID, callerID, targetUser
 	if err := s.repo.AddInvite(ctx, eventID, targetUserID); err != nil {
 		if isPgFKViolation(err) {
 			return ErrUserNotFound
+		}
+		if isPgUniqueViolation(err) {
+			return ErrAlreadyInvited
 		}
 		return err
 	}

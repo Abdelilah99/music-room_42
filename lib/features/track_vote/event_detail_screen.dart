@@ -3,12 +3,19 @@ import 'dart:async';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:music_room/core/api/event_api.dart';
 import 'package:music_room/core/api/events_api.dart';
 import 'package:music_room/core/api/web_socket_service.dart';
+import 'package:music_room/core/models/event.dart';
 import 'package:music_room/core/models/queue_track.dart';
+import 'package:music_room/core/services/location_service.dart';
+import 'package:music_room/core/widgets/friend_picker.dart';
 import 'package:music_room/core/widgets/music_search_sheet.dart';
+import 'package:music_room/features/profile/profile_provider.dart';
 import 'package:music_room/features/track_vote/event_queue_provider.dart';
+import 'package:music_room/features/track_vote/events_provider.dart';
+import 'package:music_room/shared/widgets/snackbar_helper.dart';
 
 class EventDetailScreen extends ConsumerStatefulWidget {
   const EventDetailScreen({super.key, required this.eventId});
@@ -31,6 +38,9 @@ class _EventDetailScreenState extends ConsumerState<EventDetailScreen> {
   final _votingTracks = <String>{};
 
   bool _suggesting = false;
+  bool _inviting = false;
+
+  static const _location = LocationService();
 
   @override
   void initState() {
@@ -73,58 +83,53 @@ class _EventDetailScreenState extends ConsumerState<EventDetailScreen> {
           );
       ref.invalidate(eventQueueProvider(widget.eventId));
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Track added to queue')),
-        );
+        AppSnackBar.show(context, message: 'Track added to queue', type: SnackBarType.success);
       }
     } on DioException catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            e.response?.statusCode == 409
-                ? 'Track is already in the queue'
-                : 'Failed to add track, please try again',
-          ),
-        ),
+      AppSnackBar.show(
+        context,
+        message: e.response?.statusCode == 409
+            ? 'Track is already in the queue'
+            : 'Failed to add track, please try again',
+        type: SnackBarType.error,
       );
     } finally {
       if (mounted) setState(() => _suggesting = false);
     }
   }
 
-  Future<void> _handleUpvote(String trackId) async {
+  Future<void> _handleUpvote(String trackId, Event event) async {
     if (_votingTracks.contains(trackId)) return;
     setState(() => _votingTracks.add(trackId));
+
+    double? lat, lng;
+    if (event.license == 2) {
+      final gpsResult = await _location.currentPositionDetailed();
+      if (!mounted) return;
+      if (gpsResult is GpsError) {
+        setState(() => _votingTracks.remove(trackId));
+        _showGpsError(gpsResult.reason);
+        return;
+      }
+      final ok = gpsResult as GpsSuccess;
+      lat = ok.lat;
+      lng = ok.lng;
+    }
+
     try {
-      final success = await ref
+      final rejection = await ref
           .read(eventQueueProvider(widget.eventId).notifier)
-          .upvote(trackId);
-      if (!success && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            backgroundColor: Colors.orange,
-            behavior: SnackBarBehavior.floating,
-            content: Row(
-              children: const [
-                Icon(Icons.warning_amber_rounded, color: Colors.white),
-                SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    'You have already voted for this track',
-                    style: TextStyle(
-                        color: Colors.white, fontWeight: FontWeight.w500),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
+          .upvote(trackId, lat: lat, lng: lng);
+      if (rejection != null && mounted) {
+        _showVoteRejection(rejection, event);
       }
     } catch (_) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Vote failed, please try again')),
+        AppSnackBar.show(
+          context,
+          message: 'Vote failed, please try again',
+          type: SnackBarType.error,
         );
       }
     } finally {
@@ -132,10 +137,76 @@ class _EventDetailScreenState extends ConsumerState<EventDetailScreen> {
     }
   }
 
+  void _showGpsError(GpsFailure reason) {
+    final msg = switch (reason) {
+      GpsFailure.serviceDisabled =>
+        'Location services are disabled. This event verifies your physical presence to allow voting.',
+      GpsFailure.permissionDeniedForever =>
+        'Location access is permanently denied. Enable it in app settings to vote in this geofenced event.',
+      GpsFailure.permissionDenied =>
+        'Location permission is required to vote in this geofenced event.',
+    };
+    AppSnackBar.show(context, message: msg, type: SnackBarType.error);
+    if (reason == GpsFailure.permissionDeniedForever) {
+      Geolocator.openAppSettings();
+    }
+  }
+
+  void _showVoteRejection(VoteRejection rejection, Event event) {
+    final msg = switch (rejection) {
+      VoteRejection.alreadyVoted => 'You have already voted for this track',
+      VoteRejection.notInvited => 'You are not invited to vote in this event',
+      VoteRejection.outOfRange => 'You must be at the event location to vote',
+      VoteRejection.votingClosed => _votingClosedMessage(event),
+      VoteRejection.missingCoords => 'Location is required to vote in this event',
+    };
+    AppSnackBar.show(
+      context,
+      message: msg,
+      type: rejection == VoteRejection.alreadyVoted
+          ? SnackBarType.warning
+          : SnackBarType.error,
+    );
+  }
+
+  String _votingClosedMessage(Event event) {
+    final now = DateTime.now();
+    if (event.voteStart != null && now.isBefore(event.voteStart!)) {
+      return 'Voting is not open yet';
+    }
+    return 'Voting has ended';
+  }
+
+  Future<void> _handleInvite(Event event) async {
+    final friend = await showFriendPicker(context);
+    if (friend == null || !mounted) return;
+    setState(() => _inviting = true);
+    try {
+      await ref.read(eventsApiProvider).inviteUser(event.id, friend.id);
+      if (mounted) {
+        AppSnackBar.show(
+          context,
+          message: '${friend.displayName} was invited',
+          type: SnackBarType.success,
+        );
+      }
+    } on DioException catch (e) {
+      if (!mounted) return;
+      final msg = e.response?.statusCode == 409
+          ? '${friend.displayName} is already invited'
+          : 'Failed to invite ${friend.displayName}. Try again.';
+      AppSnackBar.show(context, message: msg, type: SnackBarType.error);
+    } finally {
+      if (mounted) setState(() => _inviting = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final connState = ref.watch(wsProvider(_wsPath));
     final queueAsync = ref.watch(eventQueueProvider(widget.eventId));
+    final eventAsync = ref.watch(eventDetailProvider(widget.eventId));
+    final profileAsync = ref.watch(myProfileProvider);
 
     // Record the first successful connection so the banner only shows on
     // subsequent reconnects, not during the initial handshake.
@@ -149,27 +220,49 @@ class _EventDetailScreenState extends ConsumerState<EventDetailScreen> {
         (connState == WsConnectionState.connecting ||
             connState == WsConnectionState.error);
 
+    final event = eventAsync.maybeWhen(data: (e) => e, orElse: () => null);
+    final currentUserId = profileAsync.maybeWhen(data: (p) => p.id, orElse: () => null);
+
+    // canInteract: event loaded successfully → user has access to this event.
+    // Hides vote + suggest controls when the event is inaccessible (e.g. a
+    // private license-1 event the user is not invited to).
+    final canInteract = eventAsync.hasValue;
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Live Queue'),
+        title: Text(event?.name ?? 'Live Queue'),
         actions: [
+          if (event != null && currentUserId == event.ownerId)
+            IconButton(
+              icon: _inviting
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.person_add_outlined),
+              tooltip: 'Invite a friend',
+              onPressed: _inviting ? null : () => _handleInvite(event),
+            ),
           Padding(
             padding: const EdgeInsets.only(right: 12),
             child: _WsDot(state: connState),
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _suggesting ? null : _handleSuggest,
-        child: _suggesting
-            ? const SizedBox(
-                width: 24,
-                height: 24,
-                child: CircularProgressIndicator(
-                    strokeWidth: 2, color: Colors.white),
-              )
-            : const Icon(Icons.add),
-      ),
+      floatingActionButton: canInteract
+          ? FloatingActionButton(
+              onPressed: _suggesting ? null : _handleSuggest,
+              child: _suggesting
+                  ? const SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: Colors.white),
+                    )
+                  : const Icon(Icons.add),
+            )
+          : null,
       body: Column(
         children: [
           AnimatedSwitcher(
@@ -186,66 +279,119 @@ class _EventDetailScreenState extends ConsumerState<EventDetailScreen> {
                 : const SizedBox.shrink(key: ValueKey('no-banner')),
           ),
           Expanded(
-            child: queueAsync.when(
-              loading: () =>
-                  const Center(child: CircularProgressIndicator()),
-              error: (_, _) => Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(Icons.error_outline,
-                          size: 48, color: Colors.redAccent),
-                      const SizedBox(height: 16),
-                      const Text(
-                        'Failed to load the queue. Check your connection.',
-                        textAlign: TextAlign.center,
-                      ),
-                      const SizedBox(height: 16),
-                      ElevatedButton.icon(
-                        onPressed: () => ref
-                            .invalidate(eventQueueProvider(widget.eventId)),
-                        icon: const Icon(Icons.refresh),
-                        label: const Text('Retry'),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              data: (tracks) => tracks.isEmpty
-                  ? const Center(
-                      child: Padding(
-                        padding: EdgeInsets.all(24),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.queue_music_outlined,
-                                size: 64, color: Colors.grey),
-                            SizedBox(height: 16),
-                            Text(
-                              'No tracks in the queue yet',
-                              style: TextStyle(color: Colors.grey),
-                            ),
-                          ],
-                        ),
-                      ),
-                    )
-                  : ListView.separated(
-                      itemCount: tracks.length,
-                      separatorBuilder: (_, _) => const Divider(height: 1),
-                      itemBuilder: (_, i) {
-                        final track = tracks[i];
-                        return _TrackTile(
-                          track: track,
-                          isVoting: _votingTracks.contains(track.id),
-                          onUpvote: () => _handleUpvote(track.id),
-                        );
-                      },
-                    ),
-            ),
+            child: _buildBody(eventAsync, queueAsync),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildBody(
+    AsyncValue<Event> eventAsync,
+    AsyncValue<List<QueueTrack>> queueAsync,
+  ) {
+    // Event fetch failed — show access error instead of the queue.
+    if (eventAsync.hasError) {
+      return _buildEventError(eventAsync.error!);
+    }
+
+    final event = eventAsync.maybeWhen(data: (e) => e, orElse: () => null);
+
+    return queueAsync.when(
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (_, _) => Center(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.error_outline,
+                  size: 48, color: Colors.redAccent),
+              const SizedBox(height: 16),
+              const Text(
+                'Failed to load the queue. Check your connection.',
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton.icon(
+                onPressed: () =>
+                    ref.invalidate(eventQueueProvider(widget.eventId)),
+                icon: const Icon(Icons.refresh),
+                label: const Text('Retry'),
+              ),
+            ],
+          ),
+        ),
+      ),
+      data: (tracks) => tracks.isEmpty
+          ? const Center(
+              child: Padding(
+                padding: EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.queue_music_outlined,
+                        size: 64, color: Colors.grey),
+                    SizedBox(height: 16),
+                    Text(
+                      'No tracks in the queue yet',
+                      style: TextStyle(color: Colors.grey),
+                    ),
+                  ],
+                ),
+              ),
+            )
+          : ListView.separated(
+              itemCount: tracks.length,
+              separatorBuilder: (_, _) => const Divider(height: 1),
+              itemBuilder: (_, i) {
+                final track = tracks[i];
+                return _TrackTile(
+                  track: track,
+                  isVoting: _votingTracks.contains(track.id),
+                  onUpvote: event != null
+                      ? () => _handleUpvote(track.id, event)
+                      : () {},
+                  showVoteButton: event != null,
+                );
+              },
+            ),
+    );
+  }
+
+  Widget _buildEventError(Object error) {
+    final is4xx = error is DioException &&
+        (error.response?.statusCode ?? 0) >= 400 &&
+        (error.response?.statusCode ?? 0) < 500;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              is4xx ? Icons.lock_outline : Icons.error_outline,
+              size: 48,
+              color: is4xx ? Colors.grey : Colors.redAccent,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              is4xx
+                  ? 'You are not invited to this event'
+                  : 'Failed to load the event. Check your connection.',
+              textAlign: TextAlign.center,
+            ),
+            if (!is4xx) ...[
+              const SizedBox(height: 16),
+              ElevatedButton.icon(
+                onPressed: () =>
+                    ref.invalidate(eventDetailProvider(widget.eventId)),
+                icon: const Icon(Icons.refresh),
+                label: const Text('Retry'),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }
@@ -337,11 +483,13 @@ class _TrackTile extends StatelessWidget {
     required this.track,
     required this.isVoting,
     required this.onUpvote,
+    this.showVoteButton = true,
   });
 
   final QueueTrack track;
   final bool isVoting;
   final VoidCallback onUpvote;
+  final bool showVoteButton;
 
   @override
   Widget build(BuildContext context) {
@@ -369,17 +517,19 @@ class _TrackTile extends StatelessWidget {
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
       ),
-      trailing: isVoting
-          ? const SizedBox(
-              width: 24,
-              height: 24,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            )
-          : IconButton(
-              icon: const Icon(Icons.thumb_up_alt_outlined),
-              onPressed: onUpvote,
-              tooltip: 'Upvote',
-            ),
+      trailing: showVoteButton
+          ? isVoting
+              ? const SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : IconButton(
+                  icon: const Icon(Icons.thumb_up_alt_outlined),
+                  onPressed: onUpvote,
+                  tooltip: 'Upvote',
+                )
+          : null,
     );
   }
 }

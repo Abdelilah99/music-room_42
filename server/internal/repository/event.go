@@ -153,7 +153,7 @@ func (r *eventRepository) Delete(ctx context.Context, eventID uuid.UUID) error {
 
 func (r *eventRepository) AddInvite(ctx context.Context, eventID, userID uuid.UUID) error {
 	_, err := r.pool.Exec(ctx,
-		`INSERT INTO event_invites (event_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+		`INSERT INTO event_invites (event_id, user_id) VALUES ($1, $2)`,
 		eventID, userID,
 	)
 	return err

@@ -17,9 +17,15 @@ class EventApi {
         .toList();
   }
 
-  /// Throws [DioException] with status 409 when the user has already voted.
-  Future<void> vote(String eventId, String trackId) async {
-    await _client.dio.post('/api/v1/events/$eventId/tracks/$trackId/vote');
+  /// Throws [DioException] with status 409 when already voted, 403 for license
+  /// violations (NOT_INVITED / OUT_OF_RANGE / VOTING_CLOSED), or 400 when
+  /// [lat]/[lng] are required but missing (license 2 events).
+  Future<void> vote(String eventId, String trackId, {double? lat, double? lng}) async {
+    final body = (lat != null && lng != null) ? {'lat': lat, 'lng': lng} : null;
+    await _client.dio.post(
+      '/api/v1/events/$eventId/tracks/$trackId/vote',
+      data: body,
+    );
   }
 }
 

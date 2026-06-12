@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:music_room/core/api/event_api.dart';
 import 'package:music_room/core/models/queue_track.dart';
 
+enum VoteRejection { alreadyVoted, notInvited, outOfRange, votingClosed, missingCoords }
+
 class EventQueueNotifier extends AsyncNotifier<List<QueueTrack>> {
   EventQueueNotifier(this._eventId);
   final String _eventId;
@@ -17,23 +19,34 @@ class EventQueueNotifier extends AsyncNotifier<List<QueueTrack>> {
     state = AsyncData(tracks);
   }
 
-  /// Returns false if the server responds 409 (already voted), true on success.
-  /// Optimistic: increments the specific track immediately and re-sorts.
-  /// Revert: decrements that same track — avoids overwriting concurrent WS updates.
-  Future<bool> upvote(String trackId) async {
+  /// Returns null on success, or a [VoteRejection] for a known server refusal.
+  /// Optimistic: increments the track immediately and reverts on any failure
+  /// before classifying the error, so the revert covers all rejection types.
+  Future<VoteRejection?> upvote(String trackId, {double? lat, double? lng}) async {
     final current = state.value;
-    if (current == null) return false;
+    if (current == null) return null;
 
     state = AsyncData(_adjust(current, trackId, 1));
 
     try {
-      await _api.vote(_eventId, trackId);
-      return true;
+      await _api.vote(_eventId, trackId, lat: lat, lng: lng);
+      return null;
     } on DioException catch (e) {
-      // Revert by decrementing the current list (which may have been replaced
-      // by a queue_update while the POST was in flight).
       state = AsyncData(_adjust(state.value ?? current, trackId, -1));
-      if (e.response?.statusCode == 409) return false;
+
+      final code = e.response?.statusCode;
+      if (code == 409) return VoteRejection.alreadyVoted;
+      if (code == 403 || code == 400) {
+        final data = e.response?.data;
+        final errorStr = data is Map ? data['error'] as String? : null;
+        final rejection = switch (errorStr) {
+          'NOT_INVITED' => VoteRejection.notInvited,
+          'OUT_OF_RANGE' => VoteRejection.outOfRange,
+          'VOTING_CLOSED' => VoteRejection.votingClosed,
+          _ => code == 400 ? VoteRejection.missingCoords : null,
+        };
+        if (rejection != null) return rejection;
+      }
       rethrow;
     }
   }
