@@ -5,7 +5,6 @@ import 'package:music_room/core/api/api_client.dart';
 import 'package:music_room/core/api/devices_api.dart';
 import 'package:music_room/core/models/device.dart';
 import 'package:music_room/core/services/device_info_service.dart';
-import 'package:music_room/features/delegation/delegation_provider.dart'; // Import extensions
 
 final devicesProvider =
     AsyncNotifierProvider<DevicesNotifier, List<Device>>(DevicesNotifier.new);
@@ -59,6 +58,7 @@ class DevicesNotifier extends AsyncNotifier<List<Device>> {
     state = await AsyncValue.guard(() => _api.list());
   }
 
+
   Future<void> grantDelegation(String deviceId, String friendId) async {
     try {
       final clientDio = ref.read(apiClientProvider).dio;
@@ -78,6 +78,7 @@ class DevicesNotifier extends AsyncNotifier<List<Device>> {
       throw Exception(_errorMessage(e) ?? 'Could not revoke control.');
     }
   }
+
 
   Future<String?> registerCurrent() async {
     final model = _currentModel();
