@@ -2,24 +2,6 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
 import 'package:music_room/core/api/api_client.dart';
-import 'package:music_room/core/api/devices_api.dart'; // Import the team's api client
-
-extension DelegationApiExtensions on DevicesApi {
-  // Leverages the internal hidden raw Client safely via reflections/existing layouts
-  ApiClient get client => ApiClient.shared; // Or pass direct references if ApiClient exposes a singleton
-
-  Future<void> grant(String deviceId, String friendId) async {
-    // Falls back safely to hitting the endpoint through standard project routing
-    await client.dio.post(
-      '/api/v1/devices/$deviceId/delegate',
-      data: {'friend_user_id': friendId},
-    );
-  }
-
-  Future<void> revoke(String deviceId) async {
-    await client.dio.delete('/api/v1/devices/$deviceId/delegate');
-  }
-}
 
 class DelegatedDevice {
   final String id;
