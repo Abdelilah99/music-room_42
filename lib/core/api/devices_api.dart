@@ -34,17 +34,17 @@ class DevicesApi {
     await _client.dio.delete('/api/v1/devices/$id');
   }
 
-  Future<void> grant(String deviceId, String friendId) async {
-    await _client.dio.post(
-      '/api/v1/devices/$deviceId/delegate',
-      data: {'friend_user_id': friendId},
-    );
+  // POST /devices/:id/command -> relays a playback command to the device's
+  // WebSocket hub. `value` is only sent for the "volume" action (0-100).
+  Future<void> sendCommand(
+    String id, {
+    required String action,
+    int? value,
+  }) async {
+    final data = <String, dynamic>{'action': action};
+    if (value != null) data['value'] = value;
+    await _client.dio.post('/api/v1/devices/$id/command', data: data);
   }
-
-  Future<void> revoke(String deviceId) async {
-    await _client.dio.delete('/api/v1/devices/$deviceId/delegate');
-  }
-
 }
 
 final devicesApiProvider = Provider<DevicesApi>(

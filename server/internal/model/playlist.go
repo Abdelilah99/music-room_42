@@ -46,3 +46,13 @@ type UpdatePlaylistRequest struct {
 type PlaylistListFilter struct {
 	Q string
 }
+
+type AddTrackRequest struct {
+	ExternalID string `json:"external_id" binding:"required"`
+	Title      string `json:"title"       binding:"required"`
+	Artist     string `json:"artist"      binding:"required"`
+}
+
+type MoveTrackRequest struct {
+	Position int `json:"position" binding:"required,min=1"`
+}

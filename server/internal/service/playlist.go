@@ -11,7 +11,13 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-var ErrPlaylistNotFound = errors.New("playlist not found")
+var (
+	ErrPlaylistNotFound      = errors.New("playlist not found")
+	ErrPlaylistTrackNotFound = errors.New("track not found")
+	ErrEditNotAllowed        = errors.New("edit not allowed")
+	ErrDuplicateTrack        = errors.New("track already in playlist")
+	ErrInvalidPosition       = errors.New("position out of range")
+)
 
 type PlaylistService interface {
 	Create(ctx context.Context, ownerID uuid.UUID, req model.CreatePlaylistRequest) (*model.Playlist, error)
@@ -20,6 +26,9 @@ type PlaylistService interface {
 	Update(ctx context.Context, playlistID, callerID uuid.UUID, req model.UpdatePlaylistRequest) (*model.Playlist, error)
 	Delete(ctx context.Context, playlistID, callerID uuid.UUID) error
 	Invite(ctx context.Context, playlistID, callerID, targetUserID uuid.UUID) error
+	AddTrack(ctx context.Context, playlistID, callerID uuid.UUID, req model.AddTrackRequest) (*model.PlaylistTrack, error)
+	RemoveTrack(ctx context.Context, playlistID, callerID, trackID uuid.UUID) error
+	MoveTrack(ctx context.Context, playlistID, callerID, trackID uuid.UUID, newPos int) error
 }
 
 type playlistService struct {
@@ -97,4 +106,70 @@ func (s *playlistService) requireOwner(ctx context.Context, playlistID, callerID
 		return nil, err
 	}
 	return p, nil
+}
+
+// requireEditAccess confirms the playlist is accessible to the caller and that
+// the caller is allowed to mutate its tracks. For license 1 playlists, only the
+// owner and invited users may add, remove, or reorder tracks.
+func (s *playlistService) requireEditAccess(ctx context.Context, playlistID, callerID uuid.UUID) (*model.Playlist, error) {
+	p, err := s.repo.GetAccessible(ctx, playlistID, callerID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrPlaylistNotFound
+		}
+		return nil, err
+	}
+	if p.License == 1 && p.OwnerID != callerID {
+		invited, err := s.repo.IsInvited(ctx, playlistID, callerID)
+		if err != nil {
+			return nil, err
+		}
+		if !invited {
+			return nil, ErrEditNotAllowed
+		}
+	}
+	return p, nil
+}
+
+func (s *playlistService) AddTrack(ctx context.Context, playlistID, callerID uuid.UUID, req model.AddTrackRequest) (*model.PlaylistTrack, error) {
+	if _, err := s.requireEditAccess(ctx, playlistID, callerID); err != nil {
+		return nil, err
+	}
+	track, err := s.repo.AddTrack(ctx, playlistID, callerID, req)
+	if err != nil {
+		if isPgUniqueViolation(err) {
+			return nil, ErrDuplicateTrack
+		}
+		return nil, err
+	}
+	return track, nil
+}
+
+func (s *playlistService) RemoveTrack(ctx context.Context, playlistID, callerID, trackID uuid.UUID) error {
+	if _, err := s.requireEditAccess(ctx, playlistID, callerID); err != nil {
+		return err
+	}
+	if err := s.repo.RemoveTrack(ctx, playlistID, trackID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrPlaylistTrackNotFound
+		}
+		return err
+	}
+	return nil
+}
+
+func (s *playlistService) MoveTrack(ctx context.Context, playlistID, callerID, trackID uuid.UUID, newPos int) error {
+	if _, err := s.requireEditAccess(ctx, playlistID, callerID); err != nil {
+		return err
+	}
+	if err := s.repo.MoveTrack(ctx, playlistID, trackID, newPos); err != nil {
+		switch {
+		case errors.Is(err, pgx.ErrNoRows):
+			return ErrPlaylistTrackNotFound
+		case errors.Is(err, repository.ErrPositionOutOfRange):
+			return ErrInvalidPosition
+		}
+		return err
+	}
+	return nil
 }

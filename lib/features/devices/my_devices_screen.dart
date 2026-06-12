@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:music_room/core/models/device.dart';
 import 'package:music_room/features/devices/devices_provider.dart';
 import 'package:music_room/shared/widgets/snackbar_helper.dart';
@@ -58,6 +59,10 @@ class _MyDevicesScreenState extends ConsumerState<MyDevicesScreen> {
                     device: devices[i],
                     isDeleting: _deleting.contains(devices[i].id),
                     onDelete: () => _confirmDelete(devices[i]),
+                    onTap: () => context.push(
+                      '/devices/${devices[i].id}',
+                      extra: devices[i],
+                    ),
                   ),
                 ),
         ),
@@ -115,11 +120,13 @@ class _DeviceCard extends StatelessWidget {
     required this.device,
     required this.isDeleting,
     required this.onDelete,
+    required this.onTap,
   });
 
   final Device device;
   final bool isDeleting;
   final VoidCallback onDelete;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -131,6 +138,7 @@ class _DeviceCard extends StatelessWidget {
     return Card(
       margin: EdgeInsets.zero,
       child: ListTile(
+        onTap: onTap,
         leading: const Icon(Icons.smartphone_outlined),
         title: Text(device.name),
         subtitle: Column(
