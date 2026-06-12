@@ -88,7 +88,7 @@ final routerProvider = Provider<GoRouter>((ref) {
             builder: (_, _) => const DelegationScreen(),
           ),
           GoRoute(
-            path: '/playlist',
+            path: '/playlists',
             builder: (_, _) => const PlaylistListScreen(),
             routes: [
               GoRoute(
@@ -167,7 +167,7 @@ class AppShell extends StatelessWidget {
     (icon: Icons.how_to_vote_outlined, label: 'Track Vote', path: '/vote'),
     (icon: Icons.devices_outlined, label: 'Devices', path: '/devices'),
     (icon: Icons.swap_horiz_outlined, label: 'Delegation', path: '/delegation'),
-    (icon: Icons.queue_music_outlined, label: 'Playlist', path: '/playlist'),
+    (icon: Icons.queue_music_outlined, label: 'Playlist', path: '/playlists'),
     (icon: Icons.person_outline, label: 'Profile', path: '/profile'),
   ];
 

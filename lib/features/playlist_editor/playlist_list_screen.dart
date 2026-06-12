@@ -42,7 +42,7 @@ class _PlaylistListScreenState extends ConsumerState<PlaylistListScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('Playlists')),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => context.push('/playlist/create'),
+        onPressed: () => context.push('/playlists/create'),
         icon: const Icon(Icons.add),
         label: const Text('Create'),
       ),
