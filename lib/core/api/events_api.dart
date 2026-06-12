@@ -60,13 +60,6 @@ class EventsApi {
     );
   }
 
-  // POST /events/:id/invites -> 201 | 409 ALREADY_INVITED | 404 user not found
-  Future<void> invite(String eventId, String userId) async {
-    await _client.dio.post(
-      '/api/v1/events/$eventId/invites',
-      data: {'user_id': userId},
-    );
-  }
 }
 
 final eventsApiProvider = Provider<EventsApi>(

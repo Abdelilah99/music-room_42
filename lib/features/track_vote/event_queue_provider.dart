@@ -17,24 +17,23 @@ class EventQueueNotifier extends AsyncNotifier<List<QueueTrack>> {
     state = AsyncData(tracks);
   }
 
-  /// Returns null on success, or the server error code string on a known failure.
+  /// Returns false if the server responds 409 (already voted), true on success.
   /// Optimistic: increments the specific track immediately and re-sorts.
   /// Revert: decrements that same track — avoids overwriting concurrent WS updates.
-  Future<String?> upvote(String trackId, {double? lat, double? lng}) async {
+  Future<bool> upvote(String trackId) async {
     final current = state.value;
-    if (current == null) return null;
+    if (current == null) return false;
 
     state = AsyncData(_adjust(current, trackId, 1));
 
     try {
-      await _api.vote(_eventId, trackId, lat: lat, lng: lng);
-      return null;
+      await _api.vote(_eventId, trackId);
+      return true;
     } on DioException catch (e) {
       // Revert by decrementing the current list (which may have been replaced
       // by a queue_update while the POST was in flight).
       state = AsyncData(_adjust(state.value ?? current, trackId, -1));
-      final code = (e.response?.data as Map<String, dynamic>?)?['error'] as String?;
-      if (code != null) return code;
+      if (e.response?.statusCode == 409) return false;
       rethrow;
     }
   }

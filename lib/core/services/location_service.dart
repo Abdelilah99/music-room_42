@@ -1,4 +1,3 @@
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 
 class LocationResult {
@@ -32,5 +31,3 @@ class LocationService {
     return LocationResult(pos.latitude, pos.longitude);
   }
 }
-
-final locationServiceProvider = Provider<LocationService>((_) => const LocationService());
