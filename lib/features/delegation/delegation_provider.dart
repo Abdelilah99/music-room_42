@@ -47,10 +47,3 @@ class DelegatedToMeNotifier extends AsyncNotifier<List<DelegatedDevice>> {
 }
 
 final delegatedToMeProvider = AsyncNotifierProvider.autoDispose<DelegatedToMeNotifier, List<DelegatedDevice>>(DelegatedToMeNotifier.new);
-
-final friendsProvider = FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
-  final dio = ref.read(apiClientProvider).dio;
-  final response = await dio.get('/api/v1/friends');
-  final list = response.data['friends'] as List? ?? response.data as List? ?? [];
-  return list.map((item) => item as Map<String, dynamic>).toList();
-});

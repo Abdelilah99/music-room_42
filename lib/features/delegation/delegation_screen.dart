@@ -3,7 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:music_room/core/api/web_socket_service.dart';
 import 'package:music_room/core/widgets/ws_shell.dart';
 import 'package:music_room/core/models/device.dart';
-import 'package:music_room/features/devices/devices_provider.dart'; 
+import 'package:music_room/core/models/user.dart';
+import 'package:music_room/core/widgets/friend_picker.dart';
+import 'package:music_room/features/devices/devices_provider.dart';
 import 'package:music_room/features/delegation/delegation_provider.dart';
 
 class DelegationScreen extends ConsumerWidget {
@@ -52,61 +54,13 @@ class MyDevicesTab extends ConsumerWidget {
   const MyDevicesTab({super.key});
 
   void _openFriendPickerAndGrant(BuildContext context, WidgetRef ref, Device device) async {
-    final selectedFriend = await showModalBottomSheet<Map<String, dynamic>>(
-      context: context,
-      isScrollControlled: true,
-      builder: (context) => Consumer(
-        builder: (context, ref, child) {
-          final friendsState = ref.watch(friendsProvider);
-          return Container(
-            height: MediaQuery.of(context).size.height * 0.5,
-            padding: const EdgeInsets.all(16.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Select a Friend', style: Theme.of(context).textTheme.titleLarge),
-                const SizedBox(height: 16),
-                Expanded(
-                  child: friendsState.when(
-                    loading: () => const Center(child: CircularProgressIndicator()),
-                    error: (err, _) => Center(child: Text('Failed to load friends: $err')),
-                    data: (friends) {
-                      if (friends.isEmpty) {
-                        return const Center(child: Text('No friends found.'));
-                      }
-                      return ListView.builder(
-                        itemCount: friends.length,
-                        itemBuilder: (context, index) {
-                          final friend = friends[index];
-                          final email = friend['email']?.toString() ?? 'No Email';
-                          
-                          // [Critical Fix] Safely extract custom username through nested public_info objects
-                          final username = friend['public_info']?['display_name']?.toString()
-                              ?? friend['email']?.toString()
-                              ?? 'Unknown';
-                          
-                          return ListTile(
-                            leading: const Icon(Icons.person),
-                            title: Text(username),
-                            subtitle: Text(email),
-                            onTap: () => Navigator.pop(context, friend),
-                          );
-                        },
-                      );
-                    },
-                  ),
-                ),
-              ],
-            ),
-          );
-        },
-      ),
-    );
+    final selectedFriend = await showFriendPicker(context);
 
     if (selectedFriend == null || !context.mounted) return;
 
-    final String friendId = selectedFriend['id']?.toString() ?? selectedFriend['user_id']?.toString() ?? '';
-    final String friendEmail = selectedFriend['email']?.toString() ?? 'Selected Friend';
+    final User friend = selectedFriend;
+    final String friendId = friend.id;
+    final String friendEmail = friend.email;
 
     if (device.isDelegated) {
       final confirmReplacement = await showDialog<bool>(
