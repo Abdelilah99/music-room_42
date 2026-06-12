@@ -17,9 +17,14 @@ class EventApi {
         .toList();
   }
 
-  /// Throws [DioException] with status 409 when the user has already voted.
-  Future<void> vote(String eventId, String trackId) async {
-    await _client.dio.post('/api/v1/events/$eventId/tracks/$trackId/vote');
+  /// Throws [DioException] on license violations (403) or duplicate vote (409).
+  /// For license 2 events, [lat] and [lng] must be supplied.
+  Future<void> vote(String eventId, String trackId, {double? lat, double? lng}) async {
+    final body = (lat != null && lng != null) ? {'lat': lat, 'lng': lng} : null;
+    await _client.dio.post(
+      '/api/v1/events/$eventId/tracks/$trackId/vote',
+      data: body,
+    );
   }
 }
 

@@ -47,6 +47,26 @@ class EventsApi {
     final res = await _client.dio.post('/api/v1/events', data: body);
     return Event.fromJson(res.data as Map<String, dynamic>);
   }
+  // POST /events/:id/tracks -> 201 (track added) | 409 (already queued)
+  Future<void> suggestTrack(
+    String eventId, {
+    required String externalId,
+    required String title,
+    required String artist,
+  }) async {
+    await _client.dio.post(
+      '/api/v1/events/$eventId/tracks',
+      data: {'external_id': externalId, 'title': title, 'artist': artist},
+    );
+  }
+
+  // POST /events/:id/invites -> 201 | 409 ALREADY_INVITED | 404 user not found
+  Future<void> invite(String eventId, String userId) async {
+    await _client.dio.post(
+      '/api/v1/events/$eventId/invites',
+      data: {'user_id': userId},
+    );
+  }
 }
 
 final eventsApiProvider = Provider<EventsApi>(
