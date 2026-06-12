@@ -70,16 +70,33 @@ class _EventDetailScreenState extends ConsumerState<EventDetailScreen> {
     }
   }
 
-  Future<void> _handleSuggest() async {
+  Future<void> _handleSuggest(Event event) async {
     final track = await showMusicSearchSheet(context);
     if (track == null || !mounted) return;
     setState(() => _suggesting = true);
+
+    double? lat, lng;
+    if (event.license == 2) {
+      final gpsResult = await _location.currentPositionDetailed();
+      if (!mounted) return;
+      if (gpsResult is GpsError) {
+        setState(() => _suggesting = false);
+        _showGpsError(gpsResult.reason);
+        return;
+      }
+      final ok = gpsResult as GpsSuccess;
+      lat = ok.lat;
+      lng = ok.lng;
+    }
+
     try {
       await ref.read(eventsApiProvider).suggestTrack(
             widget.eventId,
             externalId: track.externalId,
             title: track.title,
             artist: track.artist,
+            lat: lat,
+            lng: lng,
           );
       ref.invalidate(eventQueueProvider(widget.eventId));
       if (mounted) {
@@ -87,13 +104,23 @@ class _EventDetailScreenState extends ConsumerState<EventDetailScreen> {
       }
     } on DioException catch (e) {
       if (!mounted) return;
-      AppSnackBar.show(
-        context,
-        message: e.response?.statusCode == 409
-            ? 'Track is already in the queue'
-            : 'Failed to add track, please try again',
-        type: SnackBarType.error,
-      );
+      final status = e.response?.statusCode;
+      final code = e.response?.data?['error'] as String?;
+      final String msg;
+      if (status == 409) {
+        msg = 'Track is already in the queue';
+      } else if (status == 403 && code == 'NOT_INVITED') {
+        msg = 'You are not invited to suggest tracks in this event';
+      } else if (status == 403 && code == 'OUT_OF_RANGE') {
+        msg = 'You must be at the event location to suggest tracks';
+      } else if (status == 403 && code == 'VOTING_CLOSED') {
+        msg = _votingClosedMessage(event);
+      } else if (status == 400) {
+        msg = 'Location is required to suggest tracks in this event';
+      } else {
+        msg = 'Failed to add track, please try again';
+      }
+      AppSnackBar.show(context, message: msg, type: SnackBarType.error);
     } finally {
       if (mounted) setState(() => _suggesting = false);
     }
@@ -252,7 +279,7 @@ class _EventDetailScreenState extends ConsumerState<EventDetailScreen> {
       ),
       floatingActionButton: canInteract
           ? FloatingActionButton(
-              onPressed: _suggesting ? null : _handleSuggest,
+              onPressed: _suggesting ? null : () => _handleSuggest(event!),
               child: _suggesting
                   ? const SizedBox(
                       width: 24,

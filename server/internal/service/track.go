@@ -41,10 +41,15 @@ func NewTrackService(eventRepo repository.EventRepository, trackRepo repository.
 }
 
 func (s *trackService) Suggest(ctx context.Context, eventID, callerID uuid.UUID, req model.SuggestTrackRequest) (*model.Track, error) {
-	if _, err := s.eventRepo.GetAccessible(ctx, eventID, callerID); err != nil {
+	event, err := s.eventRepo.GetAccessible(ctx, eventID, callerID)
+	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrEventNotFound
 		}
+		return nil, err
+	}
+
+	if err := s.enforceLicense(ctx, event, callerID, model.VoteRequest{Lat: req.Lat, Lng: req.Lng}); err != nil {
 		return nil, err
 	}
 
