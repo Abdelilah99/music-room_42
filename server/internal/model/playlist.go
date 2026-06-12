@@ -29,6 +29,10 @@ type PlaylistTrack struct {
 type PlaylistWithTracks struct {
 	Playlist
 	Tracks []PlaylistTrack `json:"tracks"`
+	// CanEdit reports whether the requesting caller may add, remove, or reorder
+	// tracks: true for the owner, any license-0 playlist, or an invited editor of
+	// a license-1 playlist. Lets the client show read-only mode without guessing.
+	CanEdit bool `json:"can_edit"`
 }
 
 type CreatePlaylistRequest struct {

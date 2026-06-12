@@ -64,7 +64,19 @@ func (s *playlistService) Get(ctx context.Context, playlistID, callerID uuid.UUI
 		tracks = []model.PlaylistTrack{}
 	}
 
-	return &model.PlaylistWithTracks{Playlist: *p, Tracks: tracks}, nil
+	// canEdit mirrors requireEditAccess: owner and license-0 playlists are always
+	// editable; a license-1 playlist is editable only by the owner or an invited
+	// user. The client uses this to render read-only mode on load.
+	canEdit := p.OwnerID == callerID || p.License != 1
+	if !canEdit {
+		invited, err := s.repo.IsInvited(ctx, playlistID, callerID)
+		if err != nil {
+			return nil, err
+		}
+		canEdit = invited
+	}
+
+	return &model.PlaylistWithTracks{Playlist: *p, Tracks: tracks, CanEdit: canEdit}, nil
 }
 
 // Update, Delete and Invite go through GetByIDForOwner first: a non-owner (or a
