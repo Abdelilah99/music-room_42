@@ -99,7 +99,9 @@ final routerProvider = Provider<GoRouter>((ref) {
           ),
           GoRoute(
             path: '/playlists/:id',
-            builder: (_, _) => const PlaylistEditorScreen(),
+            builder: (_, state) => PlaylistEditorScreen(
+              playlistId: state.pathParameters['id']!,
+            ),
           ),
           GoRoute(
             path: '/profile',
