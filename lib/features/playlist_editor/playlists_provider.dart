@@ -17,9 +17,12 @@ class PlaylistsNotifier extends AsyncNotifier<List<Playlist>> {
 
   // Re-runs the list with a new search term. Keeps the previous results on
   // screen while the request is in flight (no spinner flash on each keystroke).
+  // The query guard drops a slow in-flight response if a newer search has
+  // already been issued, so the last result shown always matches the last term.
   Future<void> search(String query) async {
     _query = query;
-    state = await AsyncValue.guard(() => _api.list(query: _query));
+    final result = await AsyncValue.guard(() => _api.list(query: query));
+    if (_query == query) state = result;
   }
 
   Future<void> refresh() async {
