@@ -10,7 +10,9 @@ import 'package:music_room/core/models/device.dart';
 import 'package:music_room/features/delegation/delegation_screen.dart';
 import 'package:music_room/features/devices/device_detail_screen.dart';
 import 'package:music_room/features/devices/my_devices_screen.dart';
+import 'package:music_room/features/playlist_editor/create_playlist_screen.dart';
 import 'package:music_room/features/playlist_editor/playlist_editor_screen.dart';
+import 'package:music_room/features/playlist_editor/playlist_list_screen.dart';
 import 'package:music_room/features/profile/friends_screen.dart';
 import 'package:music_room/features/profile/profile_screen.dart';
 import 'package:music_room/features/profile/user_profile_screen.dart';
@@ -87,6 +89,16 @@ final routerProvider = Provider<GoRouter>((ref) {
           ),
           GoRoute(
             path: '/playlist',
+            builder: (_, _) => const PlaylistListScreen(),
+            routes: [
+              GoRoute(
+                path: 'create',
+                builder: (_, _) => const CreatePlaylistScreen(),
+              ),
+            ],
+          ),
+          GoRoute(
+            path: '/playlists/:id',
             builder: (_, _) => const PlaylistEditorScreen(),
           ),
           GoRoute(
