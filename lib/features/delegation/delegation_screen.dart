@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:music_room/core/api/web_socket_service.dart';
 import 'package:music_room/core/widgets/ws_shell.dart';
 import 'package:music_room/core/models/device.dart';
-import 'package:music_room/features/devices/devices_provider.dart'; // Point to shared dev provider
+import 'package:music_room/features/devices/devices_provider.dart'; 
 import 'package:music_room/features/delegation/delegation_provider.dart';
 
 class DelegationScreen extends ConsumerWidget {
@@ -79,8 +79,11 @@ class MyDevicesTab extends ConsumerWidget {
                         itemBuilder: (context, index) {
                           final friend = friends[index];
                           final email = friend['email']?.toString() ?? 'No Email';
-                          // [Minor Fix] Safely extract username string to avoid email duplication labels
-                          final username = friend['username']?.toString() ?? 'Friend';
+                          
+                          // [Critical Fix] Safely extract custom username through nested public_info objects
+                          final username = friend['public_info']?['display_name']?.toString()
+                              ?? friend['email']?.toString()
+                              ?? 'Unknown';
                           
                           return ListTile(
                             leading: const Icon(Icons.person),
@@ -121,7 +124,6 @@ class MyDevicesTab extends ConsumerWidget {
     }
 
     try {
-      // Interacting with the common devicesProvider instance directly
       await ref.read(devicesProvider.notifier).grantDelegation(device.id, friendId);
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Control granted to $friendEmail!')));
@@ -140,7 +142,6 @@ class MyDevicesTab extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // Interacting with the common devicesProvider instance directly
     final myDevicesState = ref.watch(devicesProvider);
 
     return myDevicesState.when(
@@ -190,7 +191,6 @@ class MyDevicesTab extends ConsumerWidget {
                           if (confirmRevoke != true || !context.mounted) return;
 
                           try {
-                            // Interacting with the common devicesProvider instance directly
                             await ref.read(devicesProvider.notifier).revokeDelegation(device.id);
                             if (context.mounted) {
                               ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Delegation revoked.')));

@@ -1,7 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart' show defaultTargetPlatform, TargetPlatform;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:music_room/core/api/api_client.dart'; // Import core apiClientProvider
 import 'package:music_room/core/api/devices_api.dart';
 import 'package:music_room/core/models/device.dart';
 import 'package:music_room/core/services/device_info_service.dart';
@@ -60,30 +59,22 @@ class DevicesNotifier extends AsyncNotifier<List<Device>> {
 
 
   Future<void> grantDelegation(String deviceId, String friendId) async {
-    // Read the core client directly instead of guessing DevicesApi properties
-    final dio = ref.read(apiClientProvider).dio; 
     try {
-      await dio.post(
-        '/api/v1/devices/$deviceId/delegate',
-        data: {'friend_user_id': friendId},
-      );
+      await _api.grant(deviceId, friendId);
       await refresh(); 
     } on DioException catch (e) {
-      throw Exception(e.response?.data?['error'] ?? 'Could not delegate device control.');
+      throw Exception(_errorMessage(e) ?? 'Could not delegate device control.');
     }
   }
 
   Future<void> revokeDelegation(String deviceId) async {
-    // Read the core client directly instead of guessing DevicesApi properties
-    final dio = ref.read(apiClientProvider).dio;
     try {
-      await dio.delete('/api/v1/devices/$deviceId/delegate');
+      await _api.revoke(deviceId);
       await refresh(); 
     } on DioException catch (e) {
-      throw Exception(e.response?.data?['error'] ?? 'Could not revoke control.');
+      throw Exception(_errorMessage(e) ?? 'Could not revoke control.');
     }
   }
-
 
   Future<String?> registerCurrent() async {
     final model = _currentModel();

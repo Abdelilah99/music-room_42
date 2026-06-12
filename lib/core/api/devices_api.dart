@@ -33,6 +33,18 @@ class DevicesApi {
   Future<void> delete(String id) async {
     await _client.dio.delete('/api/v1/devices/$id');
   }
+
+  Future<void> grant(String deviceId, String friendId) async {
+    await _client.dio.post(
+      '/api/v1/devices/$deviceId/delegate',
+      data: {'friend_user_id': friendId},
+    );
+  }
+
+  Future<void> revoke(String deviceId) async {
+    await _client.dio.delete('/api/v1/devices/$deviceId/delegate');
+  }
+
 }
 
 final devicesApiProvider = Provider<DevicesApi>(
