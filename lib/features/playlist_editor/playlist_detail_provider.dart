@@ -45,6 +45,19 @@ class PlaylistDetailNotifier extends AsyncNotifier<PlaylistWithTracks> {
     state = AsyncData(current.copyWithTracks(tracks));
   }
 
+  // Optimistic remove: applies locally then DELETEs on the server. Reverts on error.
+  Future<void> removeTrack(String playlistId, String trackId) async {
+    final snapshot = state.value;
+    if (snapshot == null) return;
+    applyTrackRemoved(trackId);
+    try {
+      await _api.removeTrack(playlistId, trackId);
+    } catch (_) {
+      state = AsyncData(snapshot);
+      rethrow;
+    }
+  }
+
   // Optimistic move: applies locally then PATCHes the server. Reverts on error.
   Future<void> moveTrack(String trackId, int newPosition) async {
     final snapshot = state.value;

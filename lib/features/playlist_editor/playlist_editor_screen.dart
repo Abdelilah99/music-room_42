@@ -31,6 +31,8 @@ class _PlaylistEditorScreenState extends ConsumerState<PlaylistEditorScreen> {
   final Map<String, int> _pendingMoves = {};
   bool _inviting = false;
   bool _addingTrack = false;
+  // Gates the reconnect banner — don't show it on the initial handshake.
+  bool _everConnected = false;
 
   String get _wsPath => '/api/v1/playlists/${widget.playlistId}/ws';
 
@@ -121,8 +123,16 @@ class _PlaylistEditorScreenState extends ConsumerState<PlaylistEditorScreen> {
 
   Future<void> _removeTrack(Playlist playlist, PlaylistTrack track) async {
     try {
-      await ref.read(playlistsApiProvider).removeTrack(playlist.id, track.id);
-      // WS track_removed echo will update the list.
+      await ref
+          .read(playlistDetailProvider(widget.playlistId).notifier)
+          .removeTrack(playlist.id, track.id);
+      if (mounted) {
+        AppSnackBar.show(
+          context,
+          message: '${track.title} removed',
+          type: SnackBarType.success,
+        );
+      }
     } on DioException catch (e) {
       if (!mounted) return;
       final isEditBlocked =
@@ -234,21 +244,27 @@ class _PlaylistEditorScreenState extends ConsumerState<PlaylistEditorScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Keep WS connection alive while this screen is in the tree.
-    ref.watch(wsProvider(_wsPath));
-
-    final detailAsync =
-        ref.watch(playlistDetailProvider(widget.playlistId));
+    final connState = ref.watch(wsProvider(_wsPath));
+    final detailAsync = ref.watch(playlistDetailProvider(widget.playlistId));
     final profileAsync = ref.watch(myProfileProvider);
+
+    // Record the first successful connection so the banner only fires on
+    // subsequent drops, not during the initial handshake.
+    ref.listen<WsConnectionState>(wsProvider(_wsPath), (_, next) {
+      if (next == WsConnectionState.connected && !_everConnected) {
+        setState(() => _everConnected = true);
+      }
+    });
+
+    final showBanner = _everConnected &&
+        (connState == WsConnectionState.connecting ||
+            connState == WsConnectionState.error);
 
     final playlist =
         detailAsync.maybeWhen(data: (d) => d.playlist, orElse: () => null);
     final currentUserId =
         profileAsync.maybeWhen(data: (p) => p.id, orElse: () => null);
 
-    // Show the FAB whenever the playlist has loaded. License-1 invited users can
-    // also edit; the server enforces the permission and returns EDIT_NOT_ALLOWED
-    // if the caller has no access, which we surface as a snackbar.
     final canEdit = playlist != null;
 
     return Scaffold(
@@ -261,6 +277,10 @@ class _PlaylistEditorScreenState extends ConsumerState<PlaylistEditorScreen> {
               icon: const Icon(Icons.person_add_outlined),
               tooltip: 'Invite collaborator',
             ),
+          Padding(
+            padding: const EdgeInsets.only(right: 12),
+            child: _WsDot(state: connState),
+          ),
         ],
       ),
       floatingActionButton: canEdit
@@ -279,39 +299,58 @@ class _PlaylistEditorScreenState extends ConsumerState<PlaylistEditorScreen> {
                   : const Icon(Icons.add),
             )
           : null,
-      body: detailAsync.when(
-        loading: () => const AppLoadingWidget(),
-        error: (_, _) => AppErrorWidget(
-          message: 'Failed to load playlist. Check your connection.',
-          onRetry: () =>
-              ref.invalidate(playlistDetailProvider(widget.playlistId)),
-        ),
-        data: (detail) => Column(
-          children: [
-            _OwnerHeader(playlist: detail.playlist),
-            const Divider(height: 1),
-            Expanded(
-              child: detail.tracks.isEmpty
-                  ? const AppEmptyStateWidget(
-                      icon: Icons.queue_music_outlined,
-                      message: 'No tracks yet',
-                    )
-                  : ReorderableListView.builder(
-                      itemCount: detail.tracks.length,
-                      onReorderItem: _onReorderItem,
-                      itemBuilder: (_, i) {
-                        final track = detail.tracks[i];
-                        return _TrackTile(
-                          key: ValueKey(track.id),
-                          track: track,
-                          onRemove: () =>
-                              _removeTrack(detail.playlist, track),
-                        );
-                      },
-                    ),
+      body: Column(
+        children: [
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 200),
+            child: showBanner
+                ? _ReconnectBanner(
+                    key: const ValueKey('banner'),
+                    isError: connState == WsConnectionState.error,
+                    onRetry: connState == WsConnectionState.error
+                        ? () =>
+                            ref.read(wsProvider(_wsPath).notifier).reconnect()
+                        : null,
+                  )
+                : const SizedBox.shrink(key: ValueKey('no-banner')),
+          ),
+          Expanded(
+            child: detailAsync.when(
+              loading: () => const AppLoadingWidget(),
+              error: (_, _) => AppErrorWidget(
+                message: 'Failed to load playlist. Check your connection.',
+                onRetry: () =>
+                    ref.invalidate(playlistDetailProvider(widget.playlistId)),
+              ),
+              data: (detail) => Column(
+                children: [
+                  _OwnerHeader(playlist: detail.playlist),
+                  const Divider(height: 1),
+                  Expanded(
+                    child: detail.tracks.isEmpty
+                        ? const AppEmptyStateWidget(
+                            icon: Icons.queue_music_outlined,
+                            message: 'No tracks yet',
+                          )
+                        : ReorderableListView.builder(
+                            itemCount: detail.tracks.length,
+                            onReorderItem: _onReorderItem,
+                            itemBuilder: (_, i) {
+                              final track = detail.tracks[i];
+                              return _TrackTile(
+                                key: ValueKey(track.id),
+                                track: track,
+                                onRemove: () =>
+                                    _removeTrack(detail.playlist, track),
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -442,6 +481,74 @@ class _TrackTile extends StatelessWidget {
           ),
           const Icon(Icons.drag_handle),
         ],
+      ),
+    );
+  }
+}
+
+class _WsDot extends StatelessWidget {
+  const _WsDot({required this.state});
+
+  final WsConnectionState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final (color, label) = switch (state) {
+      WsConnectionState.connected => (Colors.green, 'Connected'),
+      WsConnectionState.connecting => (Colors.orange, 'Connecting…'),
+      WsConnectionState.disconnected => (Colors.grey, 'Disconnected'),
+      WsConnectionState.error => (Colors.red, 'Connection error'),
+    };
+    return Tooltip(
+      message: label,
+      child: CircleAvatar(radius: 6, backgroundColor: color),
+    );
+  }
+}
+
+class _ReconnectBanner extends StatelessWidget {
+  const _ReconnectBanner({
+    super.key,
+    required this.isError,
+    required this.onRetry,
+  });
+
+  final bool isError;
+  final VoidCallback? onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final bgColor = isError ? scheme.errorContainer : scheme.tertiaryContainer;
+    final fgColor =
+        isError ? scheme.onErrorContainer : scheme.onTertiaryContainer;
+    final label =
+        isError ? 'Connection lost — live updates paused' : 'Reconnecting…';
+
+    return Material(
+      color: bgColor,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        child: Row(
+          children: [
+            Icon(
+              isError ? Icons.wifi_off : Icons.sync,
+              size: 18,
+              color: fgColor,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(label,
+                  style: TextStyle(color: fgColor, fontSize: 13)),
+            ),
+            if (onRetry != null)
+              TextButton(
+                onPressed: onRetry,
+                style: TextButton.styleFrom(foregroundColor: fgColor),
+                child: const Text('Retry'),
+              ),
+          ],
+        ),
       ),
     );
   }
