@@ -101,12 +101,14 @@ class _EventDetailScreenState extends ConsumerState<EventDetailScreen> {
 
   Future<void> _handleUpvote(String trackId, Event event) async {
     if (_votingTracks.contains(trackId)) return;
+    setState(() => _votingTracks.add(trackId));
 
     double? lat, lng;
     if (event.license == 2) {
       final gpsResult = await _location.currentPositionDetailed();
       if (!mounted) return;
       if (gpsResult is GpsError) {
+        setState(() => _votingTracks.remove(trackId));
         _showGpsError(gpsResult.reason);
         return;
       }
@@ -115,7 +117,6 @@ class _EventDetailScreenState extends ConsumerState<EventDetailScreen> {
       lng = ok.lng;
     }
 
-    setState(() => _votingTracks.add(trackId));
     try {
       final rejection = await ref
           .read(eventQueueProvider(widget.eventId).notifier)
