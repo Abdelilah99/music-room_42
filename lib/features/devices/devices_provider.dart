@@ -74,6 +74,28 @@ class DevicesNotifier extends AsyncNotifier<List<Device>> {
     state = await AsyncValue.guard(() => _api.list());
   }
 
+  // Grants control of a device to a friend. Refreshes the list so the new
+  // delegate shows. Throws with a human-readable message on failure.
+  Future<void> grantDelegation(String deviceId, String friendId) async {
+    try {
+      await _api.grantDelegation(deviceId, friendId);
+      await refresh();
+    } on DioException catch (e) {
+      throw Exception(_errorMessage(e) ?? 'Could not delegate device control.');
+    }
+  }
+
+  // Revokes an active delegation on a device and refreshes the list. Throws
+  // with a human-readable message on failure.
+  Future<void> revokeDelegation(String deviceId) async {
+    try {
+      await _api.revokeDelegation(deviceId);
+      await refresh();
+    } on DioException catch (e) {
+      throw Exception(_errorMessage(e) ?? 'Could not revoke control.');
+    }
+  }
+
   // Manual "Register this device" action. Returns null on success, or a
   // human-readable message on failure.
   Future<String?> registerCurrent() async {
