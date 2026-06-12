@@ -163,3 +163,77 @@ Result: no cross-owner mutation possible; license enforcement correct.
 - Playlist mutations: `requireOwner` / `requireEditAccess` enforced consistently
 - Device WS: ownership check before upgrade
 - Playlist WS: access check before upgrade
+
+---
+
+# SQL Injection & Rate Limiting Audit
+
+This section records the findings of the ticket-46 audit.
+
+---
+
+## SQL injection
+
+All database queries in `server/internal/repository/` use pgx parameterized
+placeholders (`$1`, `$2`, ...). The `fmt.Sprintf` calls present in several
+repository files only interpolate:
+
+- Compile-time column constants (`trackCols`, `eventCols`, `playlistCols`, `deviceCols`) defined as `const` strings in the same file.
+- Integer placeholder indices built from an `argPos` / `paramIdx` counter (e.g. `fmt.Sprintf("$%d", argPos)`), never user input.
+- Hardcoded column names for dynamic `UPDATE SET` clauses in `repository/profile.go` - the values for those columns go through `$N` placeholders in the `args` slice.
+
+User-supplied values are passed exclusively through the `args` variadic
+argument to `pool.QueryRow` / `pool.Exec` / `pool.Query`, never concatenated
+into the query string.
+
+Files audited: `repository/auth.go`, `repository/device.go`,
+`repository/delegation.go`, `repository/event.go`, `repository/friend.go`,
+`repository/playlist.go`, `repository/profile.go`, `repository/track.go`.
+
+Result: zero instances of user input concatenated into SQL. No SQL injection
+risk found.
+
+---
+
+## Rate limiting
+
+Rate limiting is implemented in `internal/middleware/ratelimit.go` using
+`github.com/ulule/limiter/v3`. Two independent limiters are wired in
+`cmd/main.go`:
+
+| Limiter | Applied to | Default | Env var |
+|---------|-----------|---------|---------|
+| Global | `r.Use(...)` - every route | `100-M` | `RATE_LIMIT_GLOBAL` |
+| Auth | `authGroup.Use(...)` - `/api/v1/auth/*` only | `10-M` | `RATE_LIMIT_AUTH` |
+
+Both values are loaded with `getEnvOrDefault` so they can be tightened via
+environment variables without a code change.
+
+Responses: `429 Too Many Requests` with `{"error": "rate limit exceeded"}`.
+Verified by `TestRateLimitReturns429WhenExceeded` in
+`internal/middleware/ratelimit_test.go`, which confirms 429 on the third
+request under a 2-per-minute limit and that different IPs are tracked
+independently.
+
+Invalid rate format strings cause a startup panic (caught by
+`TestInvalidRatePanics`), so misconfiguration is detected immediately.
+
+Result: global and auth rate limits correctly applied and tested.
+
+---
+
+## Secrets & .env audit
+
+| Check | Result |
+|-------|--------|
+| `.env` in `.gitignore` | Yes - root `.gitignore` contains `.env` |
+| `.env` ever committed | No - `git log --all -- .env` returns nothing |
+| Hardcoded secrets in source | None found |
+| `JWT_SECRET` in test files | Dummy values only (`"test-secret-key-123456789-0"`, etc.), set and immediately unset with `defer os.Unsetenv` |
+| `.env.example` secrets | All sensitive fields empty (`JWT_SECRET=`, `JWT_REFRESH_SECRET=`, `SMTP_PASSWORD=`, `GOOGLE_CLIENT_ID=`) |
+
+The `DATABASE_URL` in `.env.example` uses the standard Docker Compose
+default (`postgres:postgres`) which is expected and documented for local
+development only.
+
+Result: no secrets, tokens, or passwords committed to git history.
