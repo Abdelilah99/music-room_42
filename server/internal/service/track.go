@@ -99,6 +99,9 @@ func (s *trackService) Vote(ctx context.Context, eventID, trackID, callerID uuid
 }
 
 func (s *trackService) enforceLicense(ctx context.Context, event *model.Event, callerID uuid.UUID, gps model.VoteRequest) error {
+	if callerID == event.OwnerID {
+		return nil
+	}
 	switch event.License {
 	case 1:
 		invited, err := s.eventRepo.IsInvited(ctx, event.ID, callerID)
