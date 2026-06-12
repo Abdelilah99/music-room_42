@@ -47,6 +47,7 @@ class EventsApi {
     final res = await _client.dio.post('/api/v1/events', data: body);
     return Event.fromJson(res.data as Map<String, dynamic>);
   }
+
   // POST /events/:id/tracks -> 201 (track added) | 409 (already queued)
   Future<void> suggestTrack(
     String eventId, {
@@ -60,6 +61,13 @@ class EventsApi {
     );
   }
 
+  // POST /events/:id/invites -> 201 (invited)
+  Future<void> inviteUser(String eventId, String userId) async {
+    await _client.dio.post(
+      '/api/v1/events/$eventId/invites',
+      data: {'user_id': userId},
+    );
+  }
 }
 
 final eventsApiProvider = Provider<EventsApi>(
