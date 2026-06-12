@@ -30,6 +30,52 @@ class PlaylistsApi {
     });
     return Playlist.fromJson(res.data as Map<String, dynamic>);
   }
+
+  // GET /playlists/:id -> PlaylistWithTracks
+  Future<PlaylistWithTracks> get(String playlistId) async {
+    final res = await _client.dio.get('/api/v1/playlists/$playlistId');
+    return PlaylistWithTracks.fromJson(res.data as Map<String, dynamic>);
+  }
+
+  // POST /playlists/:id/tracks -> 201 PlaylistTrack
+  Future<PlaylistTrack> addTrack(
+    String playlistId, {
+    required String externalId,
+    required String title,
+    required String artist,
+  }) async {
+    final res = await _client.dio.post(
+      '/api/v1/playlists/$playlistId/tracks',
+      data: {'external_id': externalId, 'title': title, 'artist': artist},
+    );
+    return PlaylistTrack.fromJson(res.data as Map<String, dynamic>);
+  }
+
+  // DELETE /playlists/:id/tracks/:trackId -> 200
+  Future<void> removeTrack(String playlistId, String trackId) async {
+    await _client.dio
+        .delete('/api/v1/playlists/$playlistId/tracks/$trackId');
+  }
+
+  // PATCH /playlists/:id/tracks/:trackId/position -> 200
+  Future<void> moveTrack(
+    String playlistId,
+    String trackId, {
+    required int position,
+  }) async {
+    await _client.dio.patch(
+      '/api/v1/playlists/$playlistId/tracks/$trackId/position',
+      data: {'position': position},
+    );
+  }
+
+  // POST /playlists/:id/invites -> 201
+  Future<void> inviteUser(String playlistId, String userId) async {
+    await _client.dio.post(
+      '/api/v1/playlists/$playlistId/invites',
+      data: {'user_id': userId},
+    );
+  }
 }
 
 final playlistsApiProvider = Provider<PlaylistsApi>(
