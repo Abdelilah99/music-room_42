@@ -63,8 +63,8 @@ class EventsApi {
         'external_id': externalId,
         'title': title,
         'artist': artist,
-        if (lat != null) 'lat': lat,
-        if (lng != null) 'lng': lng,
+        'lat': ?lat,
+        'lng': ?lng,
       },
     );
   }
