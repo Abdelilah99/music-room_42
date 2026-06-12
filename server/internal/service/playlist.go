@@ -92,6 +92,9 @@ func (s *playlistService) Invite(ctx context.Context, playlistID, callerID, targ
 		if isPgFKViolation(err) {
 			return ErrUserNotFound
 		}
+		if isPgUniqueViolation(err) {
+			return ErrAlreadyInvited
+		}
 		return err
 	}
 	return nil
