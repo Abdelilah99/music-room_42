@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"music-room/internal/hub"
 	"music-room/internal/model"
 	"music-room/internal/service"
 
@@ -13,11 +14,12 @@ import (
 )
 
 type EventHandler struct {
-	svc service.EventService
+	svc        service.EventService
+	hubManager *hub.HubManager
 }
 
-func NewEventHandler(svc service.EventService) *EventHandler {
-	return &EventHandler{svc: svc}
+func NewEventHandler(svc service.EventService, hubManager *hub.HubManager) *EventHandler {
+	return &EventHandler{svc: svc, hubManager: hubManager}
 }
 
 func (h *EventHandler) callerID(c *gin.Context) (uuid.UUID, bool) {
@@ -182,6 +184,28 @@ func (h *EventHandler) Invite(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, gin.H{"message": "user invited"})
+}
+
+// ServeWS upgrades to WebSocket for the event's real-time queue hub. Only users
+// who can access the event (owner, invited, or public license) are allowed in.
+func (h *EventHandler) ServeWS(c *gin.Context) {
+	callerID, ok := h.callerID(c)
+	if !ok {
+		return
+	}
+
+	eventID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "event not found"})
+		return
+	}
+
+	if _, err := h.svc.Get(c.Request.Context(), eventID, callerID); err != nil {
+		h.handleServiceError(c, err)
+		return
+	}
+
+	hub.ServeWS(h.hubManager, eventID.String(), c)
 }
 
 func (h *EventHandler) handleServiceError(c *gin.Context, err error) {
