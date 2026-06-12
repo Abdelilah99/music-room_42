@@ -52,3 +52,36 @@ func (h *MusicHandler) Search(c *gin.Context) {
 
 	c.JSON(http.StatusOK, results)
 }
+
+// GetTrack godoc
+// @Summary      Resolve a single track by id via Deezer
+// @Tags         music
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id path string true "Deezer track id"
+// @Success      200 {object} music-room_internal_model.TrackDTO
+// @Failure      400 {object} ErrorResponse "Missing id"
+// @Failure      401 {object} ErrorResponse
+// @Failure      502 {object} ErrorResponse "Deezer unreachable"
+// @Router       /music/tracks/{id} [get]
+func (h *MusicHandler) GetTrack(c *gin.Context) {
+	id := strings.TrimSpace(c.Param("id"))
+	if id == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "missing track id",
+			"code":  "INVALID_REQUEST",
+		})
+		return
+	}
+
+	track, err := h.musicSvc.GetTrack(c.Request.Context(), id)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{
+			"error": "failed to resolve track",
+			"code":  "BAD_GATEWAY",
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, track)
+}
