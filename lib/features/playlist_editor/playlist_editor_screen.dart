@@ -33,8 +33,20 @@ class _PlaylistEditorScreenState extends ConsumerState<PlaylistEditorScreen> {
   bool _addingTrack = false;
   // Gates the reconnect banner — don't show it on the initial handshake.
   bool _everConnected = false;
+  // Set when a server EDIT_NOT_ALLOWED proves the caller cannot edit. Flips the
+  // screen to read-only even if can_edit came back optimistically true.
+  bool _editBlocked = false;
 
   String get _wsPath => '/api/v1/playlists/${widget.playlistId}/ws';
+
+  // Detects the playlist EDIT_NOT_ALLOWED envelope ({"code": "EDIT_NOT_ALLOWED"}).
+  bool _isEditBlocked(DioException e) =>
+      (e.response?.data as Map?)?['code'] == 'EDIT_NOT_ALLOWED';
+
+  // Switches to read-only after the server refuses an edit.
+  void _flagReadOnly() {
+    if (!_editBlocked && mounted) setState(() => _editBlocked = true);
+  }
 
   @override
   void initState() {
@@ -109,8 +121,8 @@ class _PlaylistEditorScreenState extends ConsumerState<PlaylistEditorScreen> {
         .catchError((Object e) {
       if (!mounted) return;
       setState(() => _pendingMoves.remove(trackId));
-      final isEditBlocked = e is DioException &&
-          (e.response?.data as Map?)?['code'] == 'EDIT_NOT_ALLOWED';
+      final isEditBlocked = e is DioException && _isEditBlocked(e);
+      if (isEditBlocked) _flagReadOnly();
       AppSnackBar.show(
         context,
         message: isEditBlocked
@@ -135,8 +147,8 @@ class _PlaylistEditorScreenState extends ConsumerState<PlaylistEditorScreen> {
       }
     } on DioException catch (e) {
       if (!mounted) return;
-      final isEditBlocked =
-          (e.response?.data as Map?)?['code'] == 'EDIT_NOT_ALLOWED';
+      final isEditBlocked = _isEditBlocked(e);
+      if (isEditBlocked) _flagReadOnly();
       AppSnackBar.show(
         context,
         message: isEditBlocked
@@ -214,10 +226,9 @@ class _PlaylistEditorScreenState extends ConsumerState<PlaylistEditorScreen> {
       // WS track_added echo will insert the track via applyTrackAdded.
     } on DioException catch (e) {
       if (!mounted) return;
-      final data = e.response?.data;
       final isConflict = e.response?.statusCode == 409;
-      final isEditBlocked =
-          (data as Map?)?['code'] == 'EDIT_NOT_ALLOWED';
+      final isEditBlocked = _isEditBlocked(e);
+      if (isEditBlocked) _flagReadOnly();
       AppSnackBar.show(
         context,
         message: isConflict
@@ -265,7 +276,12 @@ class _PlaylistEditorScreenState extends ConsumerState<PlaylistEditorScreen> {
     final currentUserId =
         profileAsync.maybeWhen(data: (p) => p.id, orElse: () => null);
 
-    final canEdit = playlist != null;
+    // Editable when the server says so and no edit has been refused this session.
+    final canEditNow = detailAsync.maybeWhen(
+          data: (d) => d.canEdit,
+          orElse: () => false,
+        ) &&
+        !_editBlocked;
 
     return Scaffold(
       appBar: AppBar(
@@ -283,7 +299,7 @@ class _PlaylistEditorScreenState extends ConsumerState<PlaylistEditorScreen> {
           ),
         ],
       ),
-      floatingActionButton: canEdit
+      floatingActionButton: (canEditNow && playlist != null)
           ? FloatingActionButton(
               onPressed: _addingTrack
                   ? null
@@ -322,32 +338,65 @@ class _PlaylistEditorScreenState extends ConsumerState<PlaylistEditorScreen> {
                 onRetry: () =>
                     ref.invalidate(playlistDetailProvider(widget.playlistId)),
               ),
-              data: (detail) => Column(
-                children: [
-                  _OwnerHeader(playlist: detail.playlist),
-                  const Divider(height: 1),
-                  Expanded(
-                    child: detail.tracks.isEmpty
-                        ? const AppEmptyStateWidget(
-                            icon: Icons.queue_music_outlined,
-                            message: 'No tracks yet',
-                          )
-                        : ReorderableListView.builder(
-                            itemCount: detail.tracks.length,
-                            onReorderItem: _onReorderItem,
-                            itemBuilder: (_, i) {
-                              final track = detail.tracks[i];
-                              return _TrackTile(
-                                key: ValueKey(track.id),
-                                track: track,
-                                onRemove: () =>
-                                    _removeTrack(detail.playlist, track),
-                              );
-                            },
-                          ),
-                  ),
-                ],
-              ),
+              data: (detail) {
+                final readOnly = !detail.canEdit || _editBlocked;
+                return Column(
+                  children: [
+                    _OwnerHeader(
+                      playlist: detail.playlist,
+                      readOnly: readOnly,
+                    ),
+                    const Divider(height: 1),
+                    Expanded(
+                      child: detail.tracks.isEmpty
+                          ? const AppEmptyStateWidget(
+                              icon: Icons.queue_music_outlined,
+                              message: 'No tracks yet',
+                            )
+                          : readOnly
+                              ? ListView.builder(
+                                  itemCount: detail.tracks.length,
+                                  itemBuilder: (_, i) => _TrackTile(
+                                    key: ValueKey(detail.tracks[i].id),
+                                    track: detail.tracks[i],
+                                    showDragHandle: false,
+                                  ),
+                                )
+                              : ReorderableListView.builder(
+                                  itemCount: detail.tracks.length,
+                                  onReorderItem: _onReorderItem,
+                                  itemBuilder: (_, i) {
+                                    final track = detail.tracks[i];
+                                    return Dismissible(
+                                      key: ValueKey(track.id),
+                                      direction: DismissDirection.endToStart,
+                                      onDismissed: (_) =>
+                                          _removeTrack(detail.playlist, track),
+                                      background: Container(
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .errorContainer,
+                                        alignment: Alignment.centerRight,
+                                        padding:
+                                            const EdgeInsets.only(right: 20),
+                                        child: Icon(
+                                          Icons.delete_outline,
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .onErrorContainer,
+                                        ),
+                                      ),
+                                      child: _TrackTile(
+                                        track: track,
+                                        showDragHandle: true,
+                                      ),
+                                    );
+                                  },
+                                ),
+                    ),
+                  ],
+                );
+              },
             ),
           ),
         ],
@@ -357,9 +406,10 @@ class _PlaylistEditorScreenState extends ConsumerState<PlaylistEditorScreen> {
 }
 
 class _OwnerHeader extends ConsumerWidget {
-  const _OwnerHeader({required this.playlist});
+  const _OwnerHeader({required this.playlist, required this.readOnly});
 
   final Playlist playlist;
+  final bool readOnly;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -397,7 +447,42 @@ class _OwnerHeader extends ConsumerWidget {
             ),
           ),
           const SizedBox(width: 8),
+          if (readOnly) ...[
+            const _ViewOnlyBadge(),
+            const SizedBox(width: 8),
+          ],
           _LicenseBadge(isOpen: playlist.isOpenLicense),
+        ],
+      ),
+    );
+  }
+}
+
+class _ViewOnlyBadge extends StatelessWidget {
+  const _ViewOnlyBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.visibility_outlined, size: 13, color: scheme.onSurfaceVariant),
+          const SizedBox(width: 4),
+          Text(
+            'View only',
+            style: TextStyle(
+              color: scheme.onSurfaceVariant,
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
         ],
       ),
     );
@@ -437,11 +522,11 @@ class _TrackTile extends StatelessWidget {
   const _TrackTile({
     super.key,
     required this.track,
-    required this.onRemove,
+    required this.showDragHandle,
   });
 
   final PlaylistTrack track;
-  final VoidCallback onRemove;
+  final bool showDragHandle;
 
   @override
   Widget build(BuildContext context) {
@@ -471,17 +556,7 @@ class _TrackTile extends StatelessWidget {
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
       ),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          IconButton(
-            icon: Icon(Icons.delete_outline, color: scheme.error),
-            onPressed: onRemove,
-            tooltip: 'Remove',
-          ),
-          const Icon(Icons.drag_handle),
-        ],
-      ),
+      trailing: showDragHandle ? const Icon(Icons.drag_handle) : null,
     );
   }
 }

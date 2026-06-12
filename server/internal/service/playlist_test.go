@@ -147,6 +147,72 @@ func TestPlaylistService_Get_Accessible_IncludesTracks(t *testing.T) {
 	}
 }
 
+func getRepo(pl *model.Playlist, invited bool) *mockPlaylistRepo {
+	return &mockPlaylistRepo{
+		getAccessibleFn: func(_ context.Context, _, _ uuid.UUID) (*model.Playlist, error) {
+			return pl, nil
+		},
+		listTracksFn: func(_ context.Context, _ uuid.UUID) ([]model.PlaylistTrack, error) {
+			return nil, nil
+		},
+		isInvitedFn: func(_ context.Context, _, _ uuid.UUID) (bool, error) {
+			return invited, nil
+		},
+	}
+}
+
+func TestPlaylistService_Get_License0_NonOwner_CanEdit(t *testing.T) {
+	pl := newPlaylist(uuid.New()) // license 0
+	svc := service.NewPlaylistService(getRepo(pl, false))
+	got, err := svc.Get(context.Background(), pl.ID, uuid.New())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !got.CanEdit {
+		t.Error("expected CanEdit true for a license-0 playlist")
+	}
+}
+
+func TestPlaylistService_Get_License1_Owner_CanEdit(t *testing.T) {
+	owner := uuid.New()
+	pl := newPlaylist(owner)
+	pl.License = 1
+	svc := service.NewPlaylistService(getRepo(pl, false))
+	got, err := svc.Get(context.Background(), pl.ID, owner)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !got.CanEdit {
+		t.Error("expected CanEdit true for the owner of a license-1 playlist")
+	}
+}
+
+func TestPlaylistService_Get_License1_Invited_CanEdit(t *testing.T) {
+	pl := newPlaylist(uuid.New())
+	pl.License = 1
+	svc := service.NewPlaylistService(getRepo(pl, true))
+	got, err := svc.Get(context.Background(), pl.ID, uuid.New())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !got.CanEdit {
+		t.Error("expected CanEdit true for an invited editor of a license-1 playlist")
+	}
+}
+
+func TestPlaylistService_Get_License1_NotInvited_CannotEdit(t *testing.T) {
+	pl := newPlaylist(uuid.New())
+	pl.License = 1
+	svc := service.NewPlaylistService(getRepo(pl, false))
+	got, err := svc.Get(context.Background(), pl.ID, uuid.New())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.CanEdit {
+		t.Error("expected CanEdit false for a non-invited viewer of a license-1 playlist")
+	}
+}
+
 func TestPlaylistService_Get_NoTracks_ReturnsEmptySlice(t *testing.T) {
 	want := newPlaylist(uuid.New())
 

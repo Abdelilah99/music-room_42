@@ -88,8 +88,15 @@ class PlaylistTrack {
 class PlaylistWithTracks {
   final Playlist playlist;
   final List<PlaylistTrack> tracks;
+  // Whether the current user may edit (add/remove/reorder) this playlist.
+  // Server-computed: owner, license-0, or an invited editor of a license-1.
+  final bool canEdit;
 
-  const PlaylistWithTracks({required this.playlist, required this.tracks});
+  const PlaylistWithTracks({
+    required this.playlist,
+    required this.tracks,
+    this.canEdit = false,
+  });
 
   factory PlaylistWithTracks.fromJson(Map<String, dynamic> json) {
     return PlaylistWithTracks(
@@ -97,9 +104,10 @@ class PlaylistWithTracks {
       tracks: (json['tracks'] as List<dynamic>? ?? [])
           .map((t) => PlaylistTrack.fromJson(t as Map<String, dynamic>))
           .toList(),
+      canEdit: json['can_edit'] as bool? ?? false,
     );
   }
 
   PlaylistWithTracks copyWithTracks(List<PlaylistTrack> tracks) =>
-      PlaylistWithTracks(playlist: playlist, tracks: tracks);
+      PlaylistWithTracks(playlist: playlist, tracks: tracks, canEdit: canEdit);
 }
