@@ -45,6 +45,18 @@ class DevicesApi {
     if (value != null) data['value'] = value;
     await _client.dio.post('/api/v1/devices/$id/command', data: data);
   }
+
+  Future<void> grantDelegation(String deviceId, String friendId) async {
+    await _client.dio.post(
+      '/api/v1/devices/$deviceId/delegate',
+      data: {'friend_user_id': friendId},
+    );
+  }
+
+  Future<void> revokeDelegation(String deviceId) async {
+    await _client.dio.delete('/api/v1/devices/$deviceId/delegate');
+  }
+  
 }
 
 final devicesApiProvider = Provider<DevicesApi>(
