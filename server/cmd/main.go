@@ -255,7 +255,9 @@ func setupRouter(
 		deviceWs := v1.Group("/devices")
 		deviceWs.Use(jwtMiddleware.AuthenticateWS())
 		{
-			deviceWs.GET("/:id/ws", commandHandler.ServeDeviceWS)
+			// Owner or active delegate may subscribe, so a delegate sees the
+			// owner's playback state (and vice versa) live.
+			deviceWs.GET("/:id/ws", delegHandler.RequireDelegateOrOwner(), commandHandler.ServeDeviceWS)
 		}
 
 		events := v1.Group("/events")

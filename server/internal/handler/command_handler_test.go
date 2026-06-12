@@ -3,7 +3,6 @@ package handler
 import (
 	"bytes"
 	"context"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -115,23 +114,5 @@ func TestCommandSend_ValidCommand_Returns200(t *testing.T) {
 	}
 }
 
-func TestServeDeviceWS_NonOwner_Returns403(t *testing.T) {
-	svc := &mockDeviceService{
-		getFunc: func(_ context.Context, _, _ uuid.UUID) (*model.Device, error) {
-			return nil, errors.New("not found")
-		},
-	}
-	r := setupCommandRouter(svc)
-
-	req, _ := http.NewRequest(http.MethodGet,
-		"/api/v1/devices/"+uuid.New().String()+"/ws", nil)
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-
-	if w.Code != http.StatusForbidden {
-		t.Errorf("expected 403, got %d", w.Code)
-	}
-	if !bytes.Contains(w.Body.Bytes(), []byte("NOT_AUTHORIZED")) {
-		t.Errorf("unexpected body: %s", w.Body.String())
-	}
-}
+// Device WS authorization (owner or active delegate) now lives in the
+// RequireDelegateOrOwner middleware; see delegation_handler_test.go.
