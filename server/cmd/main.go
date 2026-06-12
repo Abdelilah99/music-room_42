@@ -136,7 +136,7 @@ func main() {
 	// Playlist repositories and services
 	playlistRepo := repository.NewPlaylistRepository(pool)
 	playlistSvc := service.NewPlaylistService(playlistRepo)
-	playlistHandler := handler.NewPlaylistHandler(playlistSvc)
+	playlistHandler := handler.NewPlaylistHandler(playlistSvc, hubManager)
 
 	allowedOrigins := os.Getenv("ALLOWED_ORIGINS")
 	globalLimit := getEnvOrDefault("RATE_LIMIT_GLOBAL", "100-M")
@@ -293,6 +293,12 @@ func setupRouter(
 			playlists.POST("/:id/tracks", playlistHandler.AddTrack)
 			playlists.DELETE("/:id/tracks/:trackId", playlistHandler.RemoveTrack)
 			playlists.PATCH("/:id/tracks/:trackId/position", playlistHandler.MoveTrack)
+		}
+
+		playlistWs := v1.Group("/playlists")
+		playlistWs.Use(jwtMiddleware.AuthenticateWS())
+		{
+			playlistWs.GET("/:id/ws", playlistHandler.ServeWS)
 		}
 	}
 
