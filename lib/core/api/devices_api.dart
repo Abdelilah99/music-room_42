@@ -56,7 +56,6 @@ class DevicesApi {
   Future<void> revokeDelegation(String deviceId) async {
     await _client.dio.delete('/api/v1/devices/$deviceId/delegate');
   }
-  
 }
 
 final devicesApiProvider = Provider<DevicesApi>(

@@ -11,6 +11,8 @@ final devicesProvider =
 class DevicesNotifier extends AsyncNotifier<List<Device>> {
   DevicesApi get _api => ref.read(devicesApiProvider);
 
+  // Auto-registration runs at most once per provider lifetime, on the first
+  // load. Pull-to-refresh reuses the same notifier so it never fires again.
   bool _autoRegisterAttempted = false;
 
   @override
@@ -19,6 +21,9 @@ class DevicesNotifier extends AsyncNotifier<List<Device>> {
     return _maybeAutoRegister(devices);
   }
 
+  // If the current device's model is not already registered, register it once
+  // and append it to the list. Best-effort: a failure (e.g. a 409 race) just
+  // leaves the fetched list as-is; the manual button stays available.
   Future<List<Device>> _maybeAutoRegister(List<Device> devices) async {
     if (_autoRegisterAttempted) return devices;
     _autoRegisterAttempted = true;
@@ -38,9 +43,19 @@ class DevicesNotifier extends AsyncNotifier<List<Device>> {
     }
   }
 
+  // The platform string sent to the server. Derived from the running platform
+  // rather than hardcoded, so an iOS build does not register every device as
+  // android. defaultTargetPlatform is used instead of dart:io Platform so it
+  // never throws on non-io targets.
   String _currentPlatform() =>
       defaultTargetPlatform == TargetPlatform.iOS ? 'ios' : 'android';
 
+  // A stable, non-blank identifier for the current device. The server keys
+  // device uniqueness on `model`, so this must resolve to the same value on
+  // every launch, otherwise the same physical device can be registered more
+  // than once. Trimmed so a whitespace-only platform value never slips through,
+  // and falls back to a constant when the model is unavailable (e.g. on some
+  // emulators) so we never send a blank model.
   String _currentModel() {
     final model = DeviceInfoService.model.trim();
     if (model.isNotEmpty) return model;
@@ -48,6 +63,8 @@ class DevicesNotifier extends AsyncNotifier<List<Device>> {
     return manufacturer.isNotEmpty ? manufacturer : 'Unknown Android device';
   }
 
+  // A readable name for the current device, falling back to the model when the
+  // system device name is unavailable.
   String _currentDeviceName() {
     final name = DeviceInfoService.deviceName.trim();
     return name.isNotEmpty ? name : _currentModel();
@@ -57,28 +74,34 @@ class DevicesNotifier extends AsyncNotifier<List<Device>> {
     state = await AsyncValue.guard(() => _api.list());
   }
 
-
+  // Grants control of a device to a friend. Refreshes the list so the new
+  // delegate shows. Throws with a human-readable message on failure.
   Future<void> grantDelegation(String deviceId, String friendId) async {
     try {
       await _api.grantDelegation(deviceId, friendId);
-      await refresh(); 
+      await refresh();
     } on DioException catch (e) {
       throw Exception(_errorMessage(e) ?? 'Could not delegate device control.');
     }
   }
 
+  // Revokes an active delegation on a device and refreshes the list. Throws
+  // with a human-readable message on failure.
   Future<void> revokeDelegation(String deviceId) async {
     try {
       await _api.revokeDelegation(deviceId);
-      await refresh(); 
+      await refresh();
     } on DioException catch (e) {
       throw Exception(_errorMessage(e) ?? 'Could not revoke control.');
     }
   }
 
+  // Manual "Register this device" action. Returns null on success, or a
+  // human-readable message on failure.
   Future<String?> registerCurrent() async {
     final model = _currentModel();
     final existing = state.value ?? [];
+    // Don't create a second row for a device that is already in the list.
     if (existing.any((d) => d.model == model)) {
       return 'This device is already registered';
     }
@@ -92,6 +115,7 @@ class DevicesNotifier extends AsyncNotifier<List<Device>> {
       return null;
     } on DioException catch (e) {
       if (e.response?.statusCode == 409) {
+        // Registered on the server but missing from our list: reload so it shows.
         await refresh();
         return 'This device is already registered';
       }
@@ -99,12 +123,16 @@ class DevicesNotifier extends AsyncNotifier<List<Device>> {
     }
   }
 
+  // Deletes a device and removes it from the list on success. Returns null on
+  // success, or a human-readable message on failure.
   Future<String?> remove(String id) async {
     try {
       await _api.delete(id);
       _dropFromList(id);
       return null;
     } on DioException catch (e) {
+      // The device is already gone (e.g. a duplicate tap or a delete from
+      // another session). Treat it as success and make sure it leaves the list.
       if (e.response?.statusCode == 404) {
         _dropFromList(id);
         return null;
