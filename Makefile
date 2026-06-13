@@ -79,8 +79,9 @@ down: ## Stop the stack, keep the database volume
 	$(DC) down
 	@echo ">> Stack stopped, data kept. 'make up' to start, 'make reset' to wipe the DB."
 
-reset: ## Stop the stack and WIPE the database volume (destructive)
+reset: ## Stop the stack and WIPE the database volume (destructive; FORCE=1 to skip the prompt)
 	@echo "!! WARNING: this deletes all Postgres data."
+	@[ "$(FORCE)" = "1" ] || { read -r -p "Type 'y' to confirm: " ans && [ "$$ans" = "y" ] || { echo "Aborted."; exit 1; }; }
 	$(DC) down -v
 	@echo ">> Volumes removed. The next 'make up' starts from an empty, freshly migrated DB."
 
@@ -199,6 +200,8 @@ info: ## Print the running services, URLs and ports
 _ensure-device:
 	@test -n "$(DEVICE)" || { echo "!! No Android device detected. Connect one (USB debugging on), check 'make devices', or pass DEVICE=<id>."; exit 1; }
 
+# Intentionally advisory (does not fail the build): a device on wifi adb or a
+# server reached by IP does not need the reverse, so a failure only warns.
 _adb-reverse:
 	@$(ADB) -s $(DEVICE) reverse tcp:8081 tcp:8081 >/dev/null 2>&1 && \
 	 $(ADB) -s $(DEVICE) reverse tcp:8025 tcp:8025 >/dev/null 2>&1 && \
@@ -211,4 +214,4 @@ _wait-server:
 	  if curl -fsS $(HEALTH_URL) >/dev/null 2>&1; then echo "ok"; exit 0; fi; \
 	  printf "."; sleep 1; \
 	done; \
-	echo ""; echo "!! Server not healthy after 30s. Check 'make logs'."
+	echo ""; echo "!! Server not healthy after 30s. Check 'make logs'."; exit 1
