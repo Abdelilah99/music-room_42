@@ -36,18 +36,24 @@ class AuthNotifier extends AsyncNotifier<AuthStatus> {
     state = const AsyncData(AuthStatus.authenticated);
   }
 
-  Future<void> logout() async {
+  /// Returns true if the server successfully revoked the refresh token.
+  /// Tokens are cleared and the user is logged out locally either way.
+  Future<bool> logout() async {
     final storage = ref.read(tokenStorageProvider);
+    bool serverOk = true;
     try {
       final rt = await storage.getRefreshToken();
       if (rt != null) {
         await ref.read(authApiProvider).logout(refreshToken: rt);
       }
-    } catch (_) {}
+    } catch (_) {
+      serverOk = false;
+    }
     try {
       await storage.clearTokens();
     } catch (_) {}
     state = const AsyncData(AuthStatus.unauthenticated);
+    return serverOk;
   }
 
   // Called by the auth interceptor when a token refresh attempt fails.

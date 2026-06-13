@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:music_room/core/api/profile_api.dart';
 import 'package:music_room/core/models/user_profile.dart';
+import 'package:music_room/features/auth/auth_provider.dart';
 import 'package:music_room/features/auth/google_sign_in_service.dart';
 import 'package:music_room/features/profile/profile_provider.dart';
 
@@ -45,7 +46,16 @@ class ProfileScreen extends ConsumerWidget {
     final profile = profileAsync.requireValue;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('My Profile')),
+      appBar: AppBar(
+        title: const Text('My Profile'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.logout),
+            tooltip: 'Log out',
+            onPressed: () => _showLogoutDialog(context, ref),
+          ),
+        ],
+      ),
       body: RefreshIndicator(
         onRefresh: () async {
           ref.invalidate(myProfileProvider);
@@ -513,6 +523,42 @@ class _GoogleLinkCardState extends ConsumerState<_GoogleLinkCard> {
               )
             : const Icon(Icons.chevron_right),
         onTap: _loading ? null : _linkGoogle,
+      ),
+    );
+  }
+}
+
+Future<void> _showLogoutDialog(BuildContext context, WidgetRef ref) async {
+  // Capture the messenger before any async gap so it remains valid after
+  // logout() triggers navigation away from this screen.
+  final messenger = ScaffoldMessenger.of(context);
+
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Text('Log out?'),
+      content: const Text('You will be returned to the sign-in screen.'),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(ctx).pop(false),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(ctx).pop(true),
+          child: const Text('Log out'),
+        ),
+      ],
+    ),
+  );
+
+  if (confirmed != true) return;
+
+  final serverOk = await ref.read(authProvider.notifier).logout();
+  if (!serverOk) {
+    messenger.showSnackBar(
+      const SnackBar(
+        content: Text('Logged out. Server could not be reached.'),
+        duration: Duration(seconds: 3),
       ),
     );
   }
