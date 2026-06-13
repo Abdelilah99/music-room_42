@@ -16,10 +16,15 @@ import (
 // MockMusicService is a mock implementation of service.MusicService
 type MockMusicService struct {
 	SearchTracksFunc func(ctx context.Context, query string) ([]model.TrackDTO, error)
+	GetTrackFunc     func(ctx context.Context, id string) (*model.TrackDTO, error)
 }
 
 func (m *MockMusicService) SearchTracks(ctx context.Context, query string) ([]model.TrackDTO, error) {
 	return m.SearchTracksFunc(ctx, query)
+}
+
+func (m *MockMusicService) GetTrack(ctx context.Context, id string) (*model.TrackDTO, error) {
+	return m.GetTrackFunc(ctx, id)
 }
 
 func setupMusicRouter(mockSvc *MockMusicService) *gin.Engine {
@@ -27,7 +32,68 @@ func setupMusicRouter(mockSvc *MockMusicService) *gin.Engine {
 	r := gin.New()
 	handler := NewMusicHandler(mockSvc)
 	r.GET("/api/v1/music/search", handler.Search)
+	r.GET("/api/v1/music/tracks/:id", handler.GetTrack)
 	return r
+}
+
+func TestGetTrack(t *testing.T) {
+	track := &model.TrackDTO{
+		ExternalID: "3135556",
+		Title:      "Harder Better Faster Stronger",
+		Artist:     "Daft Punk",
+		Album:      "Discovery",
+		PreviewURL: "http://example.com/preview.mp3",
+		CoverURL:   "http://example.com/cover.jpg",
+	}
+
+	tests := []struct {
+		name           string
+		id             string
+		mockTrack      *model.TrackDTO
+		mockError      error
+		expectedStatus int
+	}{
+		{
+			name:           "Successful lookup returns 200 and the track",
+			id:             "3135556",
+			mockTrack:      track,
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name:           "Upstream error returns 502",
+			id:             "999",
+			mockError:      errors.New("deezer down"),
+			expectedStatus: http.StatusBadGateway,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockSvc := &MockMusicService{
+				GetTrackFunc: func(_ context.Context, _ string) (*model.TrackDTO, error) {
+					return tt.mockTrack, tt.mockError
+				},
+			}
+			r := setupMusicRouter(mockSvc)
+
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/music/tracks/"+tt.id, nil)
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+
+			if w.Code != tt.expectedStatus {
+				t.Errorf("expected status %d, got %d", tt.expectedStatus, w.Code)
+			}
+			if tt.expectedStatus == http.StatusOK {
+				var got model.TrackDTO
+				if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+					t.Fatalf("failed to decode body: %v", err)
+				}
+				if got.PreviewURL != track.PreviewURL {
+					t.Errorf("expected preview %q, got %q", track.PreviewURL, got.PreviewURL)
+				}
+			}
+		})
+	}
 }
 
 func TestSearchMusic(t *testing.T) {

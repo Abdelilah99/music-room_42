@@ -236,6 +236,7 @@ func setupRouter(
 		music.Use(jwtMiddleware.Authenticate())
 		{
 			music.GET("/search", musicHandler.Search)
+			music.GET("/tracks/:id", musicHandler.GetTrack)
 		}
 
 		devices := v1.Group("/devices")

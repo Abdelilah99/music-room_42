@@ -21,6 +21,12 @@ class MusicApi {
         .map((e) => MusicTrack.fromJson(e as Map<String, dynamic>))
         .toList();
   }
+
+  // GET /music/tracks/:id -> MusicTrack with a fresh preview_url for playback.
+  Future<MusicTrack> getTrack(String externalId) async {
+    final res = await _client.dio.get('/api/v1/music/tracks/$externalId');
+    return MusicTrack.fromJson(res.data as Map<String, dynamic>);
+  }
 }
 
 final musicApiProvider = Provider<MusicApi>(
