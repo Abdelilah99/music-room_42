@@ -210,8 +210,8 @@ _adb-reverse:
 
 _wait-server:
 	@printf ">> Waiting for the server on $(HEALTH_URL) "; \
-	for i in $$(seq 1 30); do \
+	for i in $$(seq 1 60); do \
 	  if curl -fsS $(HEALTH_URL) >/dev/null 2>&1; then echo "ok"; exit 0; fi; \
 	  printf "."; sleep 1; \
 	done; \
-	echo ""; echo "!! Server not healthy after 30s. Check 'make logs'."; exit 1
+	echo ""; echo "!! Server not healthy after 60s. Check 'make logs'."; exit 1
