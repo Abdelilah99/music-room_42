@@ -145,7 +145,7 @@ class EventPlayerNotifier extends Notifier<EventPlayerState> {
   void _onCompleted() {
     final current = state.trackId;
     if (current != null) _playedIds.add(current);
-    _playNext();
+    unawaited(_playNext());
   }
 }
 
