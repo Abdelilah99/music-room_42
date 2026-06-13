@@ -242,6 +242,74 @@ class _PlaylistEditorScreenState extends ConsumerState<PlaylistEditorScreen> {
     }
   }
 
+  // Owner: edit the playlist's name, visibility, and license.
+  Future<void> _editPlaylist(Playlist playlist) async {
+    final result =
+        await showModalBottomSheet<({String name, String visibility, int license})>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => _PlaylistEditSheet(playlist: playlist),
+    );
+    if (result == null || !mounted) return;
+    try {
+      await ref.read(playlistsApiProvider).update(
+            playlist.id,
+            name: result.name,
+            visibility: result.visibility,
+            license: result.license,
+          );
+      ref.invalidate(playlistDetailProvider(widget.playlistId));
+      ref.invalidate(playlistsProvider);
+      if (mounted) {
+        AppSnackBar.show(context,
+            message: 'Playlist updated', type: SnackBarType.success);
+      }
+    } on DioException catch (e) {
+      if (!mounted) return;
+      final msg = (e.response?.data as Map?)?['error'] as String?;
+      AppSnackBar.show(context,
+          message: msg ?? 'Could not update the playlist',
+          type: SnackBarType.error);
+    }
+  }
+
+  // Owner: delete the playlist after confirmation, then return to the list.
+  Future<void> _deletePlaylist(Playlist playlist) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Delete playlist'),
+        content: Text('Delete "${playlist.name}"? This cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true || !mounted) return;
+    try {
+      await ref.read(playlistsApiProvider).delete(playlist.id);
+      ref.invalidate(playlistsProvider);
+      if (mounted) {
+        AppSnackBar.show(context,
+            message: 'Playlist deleted', type: SnackBarType.success);
+        Navigator.of(context).pop();
+      }
+    } on DioException catch (e) {
+      if (!mounted) return;
+      final msg = (e.response?.data as Map?)?['error'] as String?;
+      AppSnackBar.show(context,
+          message: msg ?? 'Could not delete the playlist',
+          type: SnackBarType.error);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final connState = ref.watch(wsProvider(_wsPath));
@@ -271,12 +339,24 @@ class _PlaylistEditorScreenState extends ConsumerState<PlaylistEditorScreen> {
       appBar: AppBar(
         title: Text(playlist?.name ?? 'Playlist'),
         actions: [
-          if (playlist != null && currentUserId == playlist.ownerId)
+          if (playlist != null && currentUserId == playlist.ownerId) ...[
             IconButton(
               onPressed: _inviting ? null : () => _handleInvite(playlist),
               icon: const Icon(Icons.person_add_outlined),
               tooltip: 'Invite collaborator',
             ),
+            PopupMenuButton<String>(
+              tooltip: 'Playlist options',
+              onSelected: (v) {
+                if (v == 'edit') _editPlaylist(playlist);
+                if (v == 'delete') _deletePlaylist(playlist);
+              },
+              itemBuilder: (_) => const [
+                PopupMenuItem(value: 'edit', child: Text('Edit playlist')),
+                PopupMenuItem(value: 'delete', child: Text('Delete playlist')),
+              ],
+            ),
+          ],
           Padding(
             padding: const EdgeInsets.only(right: 12),
             child: _WsDot(state: connState),
@@ -549,6 +629,98 @@ class _ReconnectBanner extends StatelessWidget {
               ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+// Owner edit form for a playlist's name, visibility, and license. Returns the
+// new values, or null if dismissed.
+class _PlaylistEditSheet extends StatefulWidget {
+  const _PlaylistEditSheet({required this.playlist});
+
+  final Playlist playlist;
+
+  @override
+  State<_PlaylistEditSheet> createState() => _PlaylistEditSheetState();
+}
+
+class _PlaylistEditSheetState extends State<_PlaylistEditSheet> {
+  late final TextEditingController _nameCtrl;
+  late String _visibility;
+  late int _license;
+
+  @override
+  void initState() {
+    super.initState();
+    _nameCtrl = TextEditingController(text: widget.playlist.name);
+    _visibility = widget.playlist.visibility;
+    _license = widget.playlist.license;
+  }
+
+  @override
+  void dispose() {
+    _nameCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(
+        left: 16,
+        right: 16,
+        top: 16,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Edit playlist', style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _nameCtrl,
+            decoration: const InputDecoration(
+              labelText: 'Name',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 16),
+          const Text('Visibility'),
+          const SizedBox(height: 8),
+          SegmentedButton<String>(
+            segments: const [
+              ButtonSegment(value: 'public', label: Text('Public')),
+              ButtonSegment(value: 'private', label: Text('Private')),
+            ],
+            selected: {_visibility},
+            onSelectionChanged: (s) => setState(() => _visibility = s.first),
+          ),
+          const SizedBox(height: 16),
+          const Text('License'),
+          const SizedBox(height: 8),
+          SegmentedButton<int>(
+            segments: const [
+              ButtonSegment(value: 0, label: Text('Anyone edits')),
+              ButtonSegment(value: 1, label: Text('Invited only')),
+            ],
+            selected: {_license},
+            onSelectionChanged: (s) => setState(() => _license = s.first),
+          ),
+          const SizedBox(height: 24),
+          FilledButton(
+            onPressed: () {
+              final name = _nameCtrl.text.trim();
+              if (name.isEmpty) return;
+              Navigator.pop(
+                context,
+                (name: name, visibility: _visibility, license: _license),
+              );
+            },
+            child: const Text('Save'),
+          ),
+        ],
       ),
     );
   }

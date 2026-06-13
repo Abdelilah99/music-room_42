@@ -37,6 +37,26 @@ class PlaylistsApi {
     return PlaylistWithTracks.fromJson(res.data as Map<String, dynamic>);
   }
 
+  // PUT /playlists/:id -> updated Playlist (owner only)
+  Future<Playlist> update(
+    String playlistId, {
+    required String name,
+    required String visibility,
+    required int license,
+  }) async {
+    final res = await _client.dio.put('/api/v1/playlists/$playlistId', data: {
+      'name': name,
+      'visibility': visibility,
+      'license': license,
+    });
+    return Playlist.fromJson(res.data as Map<String, dynamic>);
+  }
+
+  // DELETE /playlists/:id (owner only)
+  Future<void> delete(String playlistId) async {
+    await _client.dio.delete('/api/v1/playlists/$playlistId');
+  }
+
   // POST /playlists/:id/tracks -> 201 PlaylistTrack
   Future<PlaylistTrack> addTrack(
     String playlistId, {
