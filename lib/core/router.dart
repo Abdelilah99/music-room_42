@@ -7,6 +7,7 @@ import 'package:music_room/features/auth/login_screen.dart';
 import 'package:music_room/features/auth/register_screen.dart';
 import 'package:music_room/features/auth/verify_notice_screen.dart';
 import 'package:music_room/core/models/device.dart';
+import 'package:music_room/core/models/event.dart';
 import 'package:music_room/features/delegation/delegation_screen.dart';
 import 'package:music_room/features/devices/device_detail_screen.dart';
 import 'package:music_room/features/devices/my_devices_screen.dart';
@@ -69,6 +70,14 @@ final routerProvider = Provider<GoRouter>((ref) {
             builder: (_, state) => EventDetailScreen(
               eventId: state.pathParameters['id']!,
             ),
+            routes: [
+              GoRoute(
+                path: 'edit',
+                builder: (_, state) => CreateEventScreen(
+                  event: state.extra is Event ? state.extra as Event : null,
+                ),
+              ),
+            ],
           ),
           GoRoute(
             path: '/devices',
