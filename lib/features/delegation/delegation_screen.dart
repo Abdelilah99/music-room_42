@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:music_room/core/models/device.dart';
 import 'package:music_room/core/models/user.dart';
 import 'package:music_room/core/widgets/friend_picker.dart';
@@ -203,6 +204,11 @@ class DelegatedToMeTab extends ConsumerWidget {
                   leading: const Icon(Icons.album),
                   title: Text(item.deviceModel),
                   subtitle: Text('Owner: ${item.ownerEmail}'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => context.push(
+                    '/delegation/control/${item.id}',
+                    extra: item.ownerEmail,
+                  ),
                 ),
               );
             },

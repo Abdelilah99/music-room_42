@@ -16,6 +16,7 @@ var validActions = map[string]bool{
 	"play":   true,
 	"pause":  true,
 	"next":   true,
+	"track":  true, // metadata only: carries the owner's now-playing label
 	"volume": true,
 }
 
@@ -62,6 +63,7 @@ func (h *CommandHandler) Send(c *gin.Context) {
 		Type:   "command",
 		Action: req.Action,
 		Value:  req.Value,
+		Track:  req.Track,
 		SentBy: callerID.String(),
 	}
 
@@ -76,8 +78,7 @@ func (h *CommandHandler) Send(c *gin.Context) {
 }
 
 func (h *CommandHandler) ServeDeviceWS(c *gin.Context) {
-	callerID, ok := extractCallerID(c)
-	if !ok {
+	if _, ok := extractCallerID(c); !ok {
 		return
 	}
 
@@ -87,11 +88,8 @@ func (h *CommandHandler) ServeDeviceWS(c *gin.Context) {
 		return
 	}
 
-	// Only the device owner can subscribe to the device's WS hub.
-	if _, err := h.deviceSvc.Get(c.Request.Context(), deviceID, callerID); err != nil {
-		c.JSON(http.StatusForbidden, gin.H{"error": "NOT_AUTHORIZED"})
-		return
-	}
-
+	// Authorization (owner or active delegate) is enforced by the
+	// RequireDelegateOrOwner middleware on this route, so both can subscribe
+	// and stay in sync with each other's commands.
 	hub.ServeWS(h.hubManager, deviceID.String(), c)
 }

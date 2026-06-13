@@ -10,12 +10,14 @@ class PlaybackState {
   final int volume; // 0-100
   final int trackPosition; // 1-based index into the local player
   final bool inFlight; // a command request is in progress
+  final String? nowPlaying; // "Title - Artist", broadcast by the owner
 
   const PlaybackState({
     this.isPlaying = false,
     this.volume = 50,
     this.trackPosition = 1,
     this.inFlight = false,
+    this.nowPlaying,
   });
 
   PlaybackState copyWith({
@@ -23,12 +25,14 @@ class PlaybackState {
     int? volume,
     int? trackPosition,
     bool? inFlight,
+    String? nowPlaying,
   }) {
     return PlaybackState(
       isPlaying: isPlaying ?? this.isPlaying,
       volume: volume ?? this.volume,
       trackPosition: trackPosition ?? this.trackPosition,
       inFlight: inFlight ?? this.inFlight,
+      nowPlaying: nowPlaying ?? this.nowPlaying,
     );
   }
 }
@@ -43,7 +47,7 @@ class DeviceControlNotifier extends Notifier<PlaybackState> {
 
   // Applies a command to the local state without any network call. Used both
   // for optimistic updates on send and for commands received over the socket.
-  void _apply(String action, int? value) {
+  void _apply(String action, int? value, String? track) {
     switch (action) {
       case 'play':
         state = state.copyWith(isPlaying: true);
@@ -55,11 +59,28 @@ class DeviceControlNotifier extends Notifier<PlaybackState> {
         if (value != null) {
           state = state.copyWith(volume: value.clamp(0, 100));
         }
+      case 'track':
+        // Metadata only: the owner's now-playing label, for the delegate.
+        state = state.copyWith(nowPlaying: track);
     }
   }
 
-  // Handles a `command` message received over the device WebSocket (owner side).
-  void applyRemote(String action, int? value) => _apply(action, value);
+  // Handles a `command` message received over the device WebSocket (owner and
+  // delegate both subscribe, so each sees the other's actions live).
+  void applyRemote(String action, int? value, String? track) =>
+      _apply(action, value, track);
+
+  // The owner announces its current track so the delegate can display it.
+  // Bypasses the in-flight guard since it is best-effort metadata, not control.
+  Future<void> announceTrack(String label) async {
+    try {
+      await ref
+          .read(devicesApiProvider)
+          .sendCommand(_deviceId, action: 'track', track: label);
+    } catch (_) {
+      // Best effort; the delegate just keeps the previous label.
+    }
+  }
 
   // Moves the slider locally while dragging, without sending anything. The
   // command is sent once on drag end via [sendCommand].
@@ -88,7 +109,7 @@ class DeviceControlNotifier extends Notifier<PlaybackState> {
       await ref
           .read(devicesApiProvider)
           .sendCommand(_deviceId, action: action, value: value);
-      if (applyLocally) _apply(action, value);
+      if (applyLocally) _apply(action, value, null);
       state = state.copyWith(inFlight: false);
       return null;
     } on DioException catch (e) {
