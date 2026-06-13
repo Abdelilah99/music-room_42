@@ -29,16 +29,6 @@ func NewAuthRepository(pool *pgxpool.Pool) AuthRepository {
 	return &authRepository{pool: pool}
 }
 
-func (r *authRepository) CreateUser(ctx context.Context, email, passwordHash string) (*model.User, error) {
-	user := &model.User{}
-	err := r.pool.QueryRow(ctx,
-		`INSERT INTO users (email, password_hash) VALUES ($1, $2)
-		 RETURNING id, email, password_hash, is_verified, subscription_tier, created_at`,
-		email, passwordHash,
-	).Scan(&user.ID, &user.Email, &user.PasswordHash, &user.IsVerified, &user.SubscriptionTier, &user.CreatedAt)
-	return user, err
-}
-
 func (r *authRepository) GetUserByEmail(ctx context.Context, email string) (*model.User, error) {
 	user := &model.User{}
 	err := r.pool.QueryRow(ctx,
