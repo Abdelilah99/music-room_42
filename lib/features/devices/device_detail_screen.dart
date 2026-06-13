@@ -92,6 +92,7 @@ class _DeviceDetailScreenState extends ConsumerState<DeviceDetailScreen> {
     setState(() => _casting = true);
     try {
       final detail = await ref.read(playlistsApiProvider).get(selected.id);
+      if (!mounted) return;
       setState(() {
         _castTracks = detail.tracks;
         _castName = detail.playlist.name;
@@ -132,7 +133,7 @@ class _DeviceDetailScreenState extends ConsumerState<DeviceDetailScreen> {
 
     // A track change (e.g. "next") loads and plays the new track.
     if (prev?.trackPosition != next.trackPosition) {
-      _loadAndPlay(next.trackPosition, play: next.isPlaying);
+      unawaited(_loadAndPlay(next.trackPosition, play: next.isPlaying));
       return;
     }
 
@@ -142,7 +143,7 @@ class _DeviceDetailScreenState extends ConsumerState<DeviceDetailScreen> {
         if (_loadedPosition == next.trackPosition) {
           player.play();
         } else {
-          _loadAndPlay(next.trackPosition, play: true);
+          unawaited(_loadAndPlay(next.trackPosition, play: true));
         }
       } else {
         player.pause();
@@ -418,15 +419,30 @@ class _NowPlaying extends StatelessWidget {
   }
 }
 
-class _PlaylistPickerSheet extends ConsumerWidget {
+class _PlaylistPickerSheet extends ConsumerStatefulWidget {
   const _PlaylistPickerSheet();
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_PlaylistPickerSheet> createState() =>
+      _PlaylistPickerSheetState();
+}
+
+class _PlaylistPickerSheetState extends ConsumerState<_PlaylistPickerSheet> {
+  late final Future<List<Playlist>> _playlists;
+
+  @override
+  void initState() {
+    super.initState();
+    // Capture the fetch once so rebuilds don't restart it.
+    _playlists = ref.read(playlistsApiProvider).list();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return SizedBox(
       height: MediaQuery.of(context).size.height * 0.5,
       child: FutureBuilder<List<Playlist>>(
-        future: ref.read(playlistsApiProvider).list(),
+        future: _playlists,
         builder: (context, snap) {
           if (snap.connectionState != ConnectionState.done) {
             return const Center(child: CircularProgressIndicator());
