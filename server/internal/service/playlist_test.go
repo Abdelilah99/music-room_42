@@ -620,3 +620,57 @@ func TestPlaylistService_MoveTrack_InvalidPosition_Returns400(t *testing.T) {
 	// ErrInvalidPosition is mapped from repository.ErrPositionOutOfRange.
 	// Tested via integration; service delegates bound checking to the repo tx.
 }
+
+func TestPlaylistService_List_ReturnsList(t *testing.T) {
+	callerID := uuid.New()
+	playlists := []model.Playlist{
+		*newPlaylist(uuid.New()),
+		*newPlaylist(uuid.New()),
+	}
+
+	repo := &mockPlaylistRepo{
+		listFn: func(_ context.Context, cID uuid.UUID, _ model.PlaylistListFilter) ([]model.Playlist, error) {
+			if cID != callerID {
+				t.Errorf("expected callerID %s, got %s", callerID, cID)
+			}
+			return playlists, nil
+		},
+	}
+
+	svc := service.NewPlaylistService(repo)
+	got, err := svc.List(context.Background(), callerID, model.PlaylistListFilter{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got) != 2 {
+		t.Errorf("expected 2 playlists, got %d", len(got))
+	}
+}
+
+func TestPlaylistService_Update_Owner_Succeeds(t *testing.T) {
+	ownerID := uuid.New()
+	playlistID := uuid.New()
+	want := newPlaylist(ownerID)
+	want.Name = "Updated"
+
+	repo := &mockPlaylistRepo{
+		getByIDOwnerFn: func(_ context.Context, pID, oID uuid.UUID) (*model.Playlist, error) {
+			if pID != playlistID || oID != ownerID {
+				return nil, pgx.ErrNoRows
+			}
+			return newPlaylist(ownerID), nil
+		},
+		updateFn: func(_ context.Context, _ uuid.UUID, _ model.UpdatePlaylistRequest) (*model.Playlist, error) {
+			return want, nil
+		},
+	}
+
+	svc := service.NewPlaylistService(repo)
+	got, err := svc.Update(context.Background(), playlistID, ownerID, model.UpdatePlaylistRequest{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.Name != "Updated" {
+		t.Errorf("expected name 'Updated', got %s", got.Name)
+	}
+}

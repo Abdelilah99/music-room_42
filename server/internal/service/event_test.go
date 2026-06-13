@@ -337,3 +337,80 @@ func TestEventService_Create_License2_AllFields_Succeeds(t *testing.T) {
 		t.Errorf("expected event ID %s, got %s", want.ID, got.ID)
 	}
 }
+
+func TestEventService_List_ReturnsList(t *testing.T) {
+	callerID := uuid.New()
+	events := []model.Event{
+		*newEvent(uuid.New()),
+		*newEvent(uuid.New()),
+	}
+
+	repo := &mockEventRepo{
+		listFn: func(_ context.Context, cID uuid.UUID, _ model.EventListFilter) ([]model.Event, error) {
+			if cID != callerID {
+				t.Errorf("expected callerID %s, got %s", callerID, cID)
+			}
+			return events, nil
+		},
+	}
+
+	svc := service.NewEventService(repo)
+	got, err := svc.List(context.Background(), callerID, model.EventListFilter{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got) != 2 {
+		t.Errorf("expected 2 events, got %d", len(got))
+	}
+}
+
+func TestEventService_Update_Owner_Succeeds(t *testing.T) {
+	ownerID := uuid.New()
+	eventID := uuid.New()
+	want := newEvent(ownerID)
+	want.Name = "Updated"
+
+	repo := &mockEventRepo{
+		getByIDOwnerFn: func(_ context.Context, eID, oID uuid.UUID) (*model.Event, error) {
+			if eID != eventID || oID != ownerID {
+				return nil, pgx.ErrNoRows
+			}
+			return newEvent(ownerID), nil
+		},
+		updateFn: func(_ context.Context, _ uuid.UUID, _ model.UpdateEventRequest) (*model.Event, error) {
+			return want, nil
+		},
+	}
+
+	svc := service.NewEventService(repo)
+	got, err := svc.Update(context.Background(), eventID, ownerID, model.UpdateEventRequest{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.Name != "Updated" {
+		t.Errorf("expected name 'Updated', got %s", got.Name)
+	}
+}
+
+func TestEventService_Update_License2_MissingCoords_ReturnsError(t *testing.T) {
+	ownerID := uuid.New()
+	eventID := uuid.New()
+	license := 2
+
+	repo := &mockEventRepo{
+		getByIDOwnerFn: func(_ context.Context, _, _ uuid.UUID) (*model.Event, error) {
+			return newEvent(ownerID), nil
+		},
+	}
+
+	svc := service.NewEventService(repo)
+	now := time.Now()
+	_, err := svc.Update(context.Background(), eventID, ownerID, model.UpdateEventRequest{
+		License:   &license,
+		VoteStart: &now,
+		VoteEnd:   &now,
+	})
+	if !errors.Is(err, service.ErrInvalidLicenseConfig) {
+		t.Errorf("expected ErrInvalidLicenseConfig, got %v", err)
+	}
+}

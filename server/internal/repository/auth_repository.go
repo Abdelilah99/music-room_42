@@ -9,15 +9,27 @@ import (
 	"music-room/internal/model"
 )
 
-type AuthRepository struct {
+type AuthRepository interface {
+	CreateUserWithVerification(ctx context.Context, email, passwordHash string, token uuid.UUID) (*model.User, error)
+	GetUserByEmail(ctx context.Context, email string) (*model.User, error)
+	GetAndDeleteEmailVerification(ctx context.Context, token uuid.UUID) (uuid.UUID, error)
+	VerifyUser(ctx context.Context, userID uuid.UUID) error
+	DeleteEmailVerificationsForUser(ctx context.Context, userID uuid.UUID) error
+	CreateEmailVerification(ctx context.Context, userID, token uuid.UUID) error
+	CreatePasswordResetToken(ctx context.Context, userID, token uuid.UUID, expiresAt time.Time) error
+	GetPasswordResetToken(ctx context.Context, token uuid.UUID) (*model.PasswordResetToken, error)
+	ResetPassword(ctx context.Context, tokenID, userID uuid.UUID, newPasswordHash string) error
+}
+
+type authRepository struct {
 	pool *pgxpool.Pool
 }
 
-func NewAuthRepository(pool *pgxpool.Pool) *AuthRepository {
-	return &AuthRepository{pool: pool}
+func NewAuthRepository(pool *pgxpool.Pool) AuthRepository {
+	return &authRepository{pool: pool}
 }
 
-func (r *AuthRepository) CreateUser(ctx context.Context, email, passwordHash string) (*model.User, error) {
+func (r *authRepository) CreateUser(ctx context.Context, email, passwordHash string) (*model.User, error) {
 	user := &model.User{}
 	err := r.pool.QueryRow(ctx,
 		`INSERT INTO users (email, password_hash) VALUES ($1, $2)
@@ -27,7 +39,7 @@ func (r *AuthRepository) CreateUser(ctx context.Context, email, passwordHash str
 	return user, err
 }
 
-func (r *AuthRepository) GetUserByEmail(ctx context.Context, email string) (*model.User, error) {
+func (r *authRepository) GetUserByEmail(ctx context.Context, email string) (*model.User, error) {
 	user := &model.User{}
 	err := r.pool.QueryRow(ctx,
 		`SELECT id, email, password_hash, is_verified, subscription_tier, created_at
@@ -37,7 +49,7 @@ func (r *AuthRepository) GetUserByEmail(ctx context.Context, email string) (*mod
 	return user, err
 }
 
-func (r *AuthRepository) CreateUserWithVerification(ctx context.Context, email, passwordHash string, token uuid.UUID) (*model.User, error) {
+func (r *authRepository) CreateUserWithVerification(ctx context.Context, email, passwordHash string, token uuid.UUID) (*model.User, error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return nil, err
@@ -68,7 +80,7 @@ func (r *AuthRepository) CreateUserWithVerification(ctx context.Context, email, 
 	return user, nil
 }
 
-func (r *AuthRepository) CreateEmailVerification(ctx context.Context, userID, token uuid.UUID) error {
+func (r *authRepository) CreateEmailVerification(ctx context.Context, userID, token uuid.UUID) error {
 	_, err := r.pool.Exec(ctx,
 		`INSERT INTO email_verifications (user_id, token) VALUES ($1, $2)`,
 		userID, token,
@@ -76,7 +88,7 @@ func (r *AuthRepository) CreateEmailVerification(ctx context.Context, userID, to
 	return err
 }
 
-func (r *AuthRepository) DeleteEmailVerificationsForUser(ctx context.Context, userID uuid.UUID) error {
+func (r *authRepository) DeleteEmailVerificationsForUser(ctx context.Context, userID uuid.UUID) error {
 	_, err := r.pool.Exec(ctx,
 		`DELETE FROM email_verifications WHERE user_id = $1`,
 		userID,
@@ -84,7 +96,7 @@ func (r *AuthRepository) DeleteEmailVerificationsForUser(ctx context.Context, us
 	return err
 }
 
-func (r *AuthRepository) GetAndDeleteEmailVerification(ctx context.Context, token uuid.UUID) (uuid.UUID, error) {
+func (r *authRepository) GetAndDeleteEmailVerification(ctx context.Context, token uuid.UUID) (uuid.UUID, error) {
 	var userID uuid.UUID
 	err := r.pool.QueryRow(ctx,
 		`DELETE FROM email_verifications WHERE token = $1 RETURNING user_id`,
@@ -93,7 +105,7 @@ func (r *AuthRepository) GetAndDeleteEmailVerification(ctx context.Context, toke
 	return userID, err
 }
 
-func (r *AuthRepository) VerifyUser(ctx context.Context, userID uuid.UUID) error {
+func (r *authRepository) VerifyUser(ctx context.Context, userID uuid.UUID) error {
 	_, err := r.pool.Exec(ctx,
 		`UPDATE users SET is_verified = true WHERE id = $1`,
 		userID,
@@ -101,7 +113,7 @@ func (r *AuthRepository) VerifyUser(ctx context.Context, userID uuid.UUID) error
 	return err
 }
 
-func (r *AuthRepository) CreatePasswordResetToken(ctx context.Context, userID, token uuid.UUID, expiresAt time.Time) error {
+func (r *authRepository) CreatePasswordResetToken(ctx context.Context, userID, token uuid.UUID, expiresAt time.Time) error {
 	_, err := r.pool.Exec(ctx,
 		`INSERT INTO password_reset_tokens (user_id, token, expires_at) VALUES ($1, $2, $3)`,
 		userID, token, expiresAt,
@@ -109,7 +121,7 @@ func (r *AuthRepository) CreatePasswordResetToken(ctx context.Context, userID, t
 	return err
 }
 
-func (r *AuthRepository) GetPasswordResetToken(ctx context.Context, token uuid.UUID) (*model.PasswordResetToken, error) {
+func (r *authRepository) GetPasswordResetToken(ctx context.Context, token uuid.UUID) (*model.PasswordResetToken, error) {
 	t := &model.PasswordResetToken{}
 	err := r.pool.QueryRow(ctx,
 		`SELECT id, user_id, token, expires_at, used_at
@@ -119,7 +131,7 @@ func (r *AuthRepository) GetPasswordResetToken(ctx context.Context, token uuid.U
 	return t, err
 }
 
-func (r *AuthRepository) ResetPassword(ctx context.Context, tokenID, userID uuid.UUID, newPasswordHash string) error {
+func (r *authRepository) ResetPassword(ctx context.Context, tokenID, userID uuid.UUID, newPasswordHash string) error {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return err
