@@ -4,6 +4,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:go_router/go_router.dart';
 import 'package:music_room/core/api/event_api.dart';
 import 'package:music_room/core/api/events_api.dart';
 import 'package:music_room/core/api/web_socket_service.dart';
@@ -40,6 +41,7 @@ class _EventDetailScreenState extends ConsumerState<EventDetailScreen> {
 
   bool _suggesting = false;
   bool _inviting = false;
+  bool _deleting = false;
 
   static const _location = LocationService();
 
@@ -229,6 +231,54 @@ class _EventDetailScreenState extends ConsumerState<EventDetailScreen> {
     }
   }
 
+  void _editEvent(Event event) {
+    context.push('/events/${event.id}/edit', extra: event);
+  }
+
+  Future<void> _deleteEvent(Event event) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete event'),
+        content: Text(
+          'Delete "${event.name}"? This removes the event and its queue for everyone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _deleting = true);
+    try {
+      await ref.read(eventsApiProvider).delete(event.id);
+      ref.invalidate(eventsProvider);
+      if (mounted) {
+        AppSnackBar.show(context, message: 'Event deleted', type: SnackBarType.success);
+        context.go('/vote');
+      }
+    } on DioException catch (e) {
+      if (!mounted) return;
+      final msg = e.response?.data is Map
+          ? (e.response?.data['error'] as String?)
+          : null;
+      AppSnackBar.show(context,
+          message: msg ?? 'Could not delete the event. Try again.',
+          type: SnackBarType.error);
+    } finally {
+      if (mounted) setState(() => _deleting = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final connState = ref.watch(wsProvider(_wsPath));
@@ -260,7 +310,7 @@ class _EventDetailScreenState extends ConsumerState<EventDetailScreen> {
       appBar: AppBar(
         title: Text(event?.name ?? 'Live Queue'),
         actions: [
-          if (event != null && currentUserId == event.ownerId)
+          if (event != null && currentUserId == event.ownerId) ...[
             IconButton(
               icon: _inviting
                   ? const SizedBox(
@@ -272,6 +322,28 @@ class _EventDetailScreenState extends ConsumerState<EventDetailScreen> {
               tooltip: 'Invite a friend',
               onPressed: _inviting ? null : () => _handleInvite(event),
             ),
+            PopupMenuButton<String>(
+              enabled: !_deleting,
+              icon: _deleting
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.more_vert),
+              onSelected: (value) {
+                if (value == 'edit') {
+                  _editEvent(event);
+                } else if (value == 'delete') {
+                  _deleteEvent(event);
+                }
+              },
+              itemBuilder: (_) => const [
+                PopupMenuItem(value: 'edit', child: Text('Edit event')),
+                PopupMenuItem(value: 'delete', child: Text('Delete event')),
+              ],
+            ),
+          ],
           Padding(
             padding: const EdgeInsets.only(right: 12),
             child: _WsDot(state: connState),

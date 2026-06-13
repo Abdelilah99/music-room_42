@@ -48,6 +48,37 @@ class EventsApi {
     return Event.fromJson(res.data as Map<String, dynamic>);
   }
 
+  // PUT /events/:id -> updated Event (owner only)
+  Future<Event> update(
+    String eventId, {
+    required String name,
+    required String visibility,
+    required int license,
+    double? lat,
+    double? lng,
+    double? radius,
+    DateTime? voteStart,
+    DateTime? voteEnd,
+  }) async {
+    final body = <String, dynamic>{
+      'name': name,
+      'visibility': visibility,
+      'license': license,
+      'lat': ?lat,
+      'lng': ?lng,
+      'radius': ?radius,
+      if (voteStart != null) 'vote_start': voteStart.toUtc().toIso8601String(),
+      if (voteEnd != null) 'vote_end': voteEnd.toUtc().toIso8601String(),
+    };
+    final res = await _client.dio.put('/api/v1/events/$eventId', data: body);
+    return Event.fromJson(res.data as Map<String, dynamic>);
+  }
+
+  // DELETE /events/:id (owner only)
+  Future<void> delete(String eventId) async {
+    await _client.dio.delete('/api/v1/events/$eventId');
+  }
+
   // POST /events/:id/tracks -> 201 (track added) | 409 (already queued)
   Future<void> suggestTrack(
     String eventId, {

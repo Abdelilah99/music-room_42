@@ -4,12 +4,16 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:music_room/core/api/events_api.dart';
+import 'package:music_room/core/models/event.dart';
 import 'package:music_room/core/services/location_service.dart';
 import 'package:music_room/features/track_vote/events_provider.dart';
 import 'package:music_room/shared/widgets/snackbar_helper.dart';
 
 class CreateEventScreen extends ConsumerStatefulWidget {
-  const CreateEventScreen({super.key});
+  // When [event] is supplied the screen runs in edit mode (pre-filled, PUT).
+  const CreateEventScreen({super.key, this.event});
+
+  final Event? event;
 
   @override
   ConsumerState<CreateEventScreen> createState() => _CreateEventScreenState();
@@ -30,6 +34,24 @@ class _CreateEventScreenState extends ConsumerState<CreateEventScreen> {
   DateTime? _voteEnd;
   bool _locating = false;
   bool _submitting = false;
+
+  bool get _isEdit => widget.event != null;
+
+  @override
+  void initState() {
+    super.initState();
+    final e = widget.event;
+    if (e != null) {
+      _nameCtrl.text = e.name;
+      _visibility = e.visibility;
+      _license = e.license;
+      _voteStart = e.voteStart?.toLocal();
+      _voteEnd = e.voteEnd?.toLocal();
+      if (e.lat != null) _latCtrl.text = e.lat!.toStringAsFixed(6);
+      if (e.lng != null) _lngCtrl.text = e.lng!.toStringAsFixed(6);
+      if (e.radius != null) _radiusCtrl.text = e.radius!.toString();
+    }
+  }
 
   @override
   void dispose() {
@@ -124,18 +146,38 @@ class _CreateEventScreenState extends ConsumerState<CreateEventScreen> {
 
     setState(() => _submitting = true);
     try {
-      final event = await ref.read(eventsApiProvider).create(
-            name: _nameCtrl.text.trim(),
-            visibility: _visibility,
-            license: _license,
-            lat: _needsGeofence ? double.tryParse(_latCtrl.text.trim()) : null,
-            lng: _needsGeofence ? double.tryParse(_lngCtrl.text.trim()) : null,
-            radius: _needsGeofence
-                ? double.tryParse(_radiusCtrl.text.trim())
-                : null,
-            voteStart: _voteStart,
-            voteEnd: _voteEnd,
-          );
+      final api = ref.read(eventsApiProvider);
+      final lat = _needsGeofence ? double.tryParse(_latCtrl.text.trim()) : null;
+      final lng = _needsGeofence ? double.tryParse(_lngCtrl.text.trim()) : null;
+      final radius =
+          _needsGeofence ? double.tryParse(_radiusCtrl.text.trim()) : null;
+
+      final Event event;
+      if (_isEdit) {
+        event = await api.update(
+          widget.event!.id,
+          name: _nameCtrl.text.trim(),
+          visibility: _visibility,
+          license: _license,
+          lat: lat,
+          lng: lng,
+          radius: radius,
+          voteStart: _voteStart,
+          voteEnd: _voteEnd,
+        );
+        ref.invalidate(eventDetailProvider(event.id));
+      } else {
+        event = await api.create(
+          name: _nameCtrl.text.trim(),
+          visibility: _visibility,
+          license: _license,
+          lat: lat,
+          lng: lng,
+          radius: radius,
+          voteStart: _voteStart,
+          voteEnd: _voteEnd,
+        );
+      }
       ref.invalidate(eventsProvider);
       if (mounted) context.go('/events/${event.id}');
     } on DioException catch (e) {
@@ -144,7 +186,10 @@ class _CreateEventScreenState extends ConsumerState<CreateEventScreen> {
           ? (e.response?.data['error'] as String?)
           : null;
       AppSnackBar.show(context,
-          message: msg ?? 'Could not create the event. Try again.',
+          message: msg ??
+              (_isEdit
+                  ? 'Could not save the event. Try again.'
+                  : 'Could not create the event. Try again.'),
           type: SnackBarType.error);
     } finally {
       if (mounted) setState(() => _submitting = false);
@@ -154,7 +199,7 @@ class _CreateEventScreenState extends ConsumerState<CreateEventScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Create event')),
+      appBar: AppBar(title: Text(_isEdit ? 'Edit event' : 'Create event')),
       body: AbsorbPointer(
         absorbing: _submitting,
         child: Form(
@@ -300,7 +345,7 @@ class _CreateEventScreenState extends ConsumerState<CreateEventScreen> {
                         height: 20,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : const Text('Create event'),
+                    : Text(_isEdit ? 'Save changes' : 'Create event'),
               ),
             ],
           ),
