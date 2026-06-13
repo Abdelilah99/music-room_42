@@ -34,30 +34,57 @@ type mockAuthRepo struct {
 }
 
 func (m *mockAuthRepo) CreateUserWithVerification(ctx context.Context, email, passwordHash string, token uuid.UUID) (*model.User, error) {
+	if m.createUserWithVerificationFn == nil {
+		panic("mockAuthRepo: CreateUserWithVerification called unexpectedly")
+	}
 	return m.createUserWithVerificationFn(ctx, email, passwordHash, token)
 }
 func (m *mockAuthRepo) GetUserByEmail(ctx context.Context, email string) (*model.User, error) {
+	if m.getUserByEmailFn == nil {
+		panic("mockAuthRepo: GetUserByEmail called unexpectedly")
+	}
 	return m.getUserByEmailFn(ctx, email)
 }
 func (m *mockAuthRepo) GetAndDeleteEmailVerification(ctx context.Context, token uuid.UUID) (uuid.UUID, error) {
+	if m.getAndDeleteEmailVerificationFn == nil {
+		panic("mockAuthRepo: GetAndDeleteEmailVerification called unexpectedly")
+	}
 	return m.getAndDeleteEmailVerificationFn(ctx, token)
 }
 func (m *mockAuthRepo) VerifyUser(ctx context.Context, userID uuid.UUID) error {
+	if m.verifyUserFn == nil {
+		panic("mockAuthRepo: VerifyUser called unexpectedly")
+	}
 	return m.verifyUserFn(ctx, userID)
 }
 func (m *mockAuthRepo) DeleteEmailVerificationsForUser(ctx context.Context, userID uuid.UUID) error {
+	if m.deleteEmailVerificationsForUserFn == nil {
+		panic("mockAuthRepo: DeleteEmailVerificationsForUser called unexpectedly")
+	}
 	return m.deleteEmailVerificationsForUserFn(ctx, userID)
 }
 func (m *mockAuthRepo) CreateEmailVerification(ctx context.Context, userID, token uuid.UUID) error {
+	if m.createEmailVerificationFn == nil {
+		panic("mockAuthRepo: CreateEmailVerification called unexpectedly")
+	}
 	return m.createEmailVerificationFn(ctx, userID, token)
 }
 func (m *mockAuthRepo) CreatePasswordResetToken(ctx context.Context, userID, token uuid.UUID, expiresAt time.Time) error {
+	if m.createPasswordResetTokenFn == nil {
+		panic("mockAuthRepo: CreatePasswordResetToken called unexpectedly")
+	}
 	return m.createPasswordResetTokenFn(ctx, userID, token, expiresAt)
 }
 func (m *mockAuthRepo) GetPasswordResetToken(ctx context.Context, token uuid.UUID) (*model.PasswordResetToken, error) {
+	if m.getPasswordResetTokenFn == nil {
+		panic("mockAuthRepo: GetPasswordResetToken called unexpectedly")
+	}
 	return m.getPasswordResetTokenFn(ctx, token)
 }
 func (m *mockAuthRepo) ResetPassword(ctx context.Context, tokenID, userID uuid.UUID, newPasswordHash string) error {
+	if m.resetPasswordFn == nil {
+		panic("mockAuthRepo: ResetPassword called unexpectedly")
+	}
 	return m.resetPasswordFn(ctx, tokenID, userID, newPasswordHash)
 }
 
