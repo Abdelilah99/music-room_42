@@ -340,6 +340,51 @@ func TestTrackService_DeleteTrack_NotOwner_Returns404(t *testing.T) {
 	}
 }
 
+func TestTrackService_DeleteTrack_TrackNotFound(t *testing.T) {
+	eventID := uuid.New()
+
+	eventRepo := &mockEventRepoForTrack{
+		getByIDOwnerFn: func(_ context.Context, eID, _ uuid.UUID) (*model.Event, error) {
+			return accessibleEvent(eID), nil
+		},
+	}
+	trackRepo := &mockTrackRepo{
+		getByIDFn: func(_ context.Context, _, _ uuid.UUID) (*model.Track, error) {
+			return nil, pgx.ErrNoRows
+		},
+	}
+
+	svc := service.NewTrackService(eventRepo, trackRepo)
+	if !errors.Is(svc.DeleteTrack(context.Background(), eventID, uuid.New(), uuid.New()), service.ErrTrackNotFound) {
+		t.Error("expected ErrTrackNotFound")
+	}
+}
+
+func TestTrackService_DeleteTrack_DeleteRepoError(t *testing.T) {
+	eventID := uuid.New()
+	trackID := uuid.New()
+	sentinel := errors.New("db error")
+
+	eventRepo := &mockEventRepoForTrack{
+		getByIDOwnerFn: func(_ context.Context, eID, _ uuid.UUID) (*model.Event, error) {
+			return accessibleEvent(eID), nil
+		},
+	}
+	trackRepo := &mockTrackRepo{
+		getByIDFn: func(_ context.Context, tID, eID uuid.UUID) (*model.Track, error) {
+			return sampleTrack(eID, tID), nil
+		},
+		deleteFn: func(_ context.Context, _ uuid.UUID) error {
+			return sentinel
+		},
+	}
+
+	svc := service.NewTrackService(eventRepo, trackRepo)
+	if !errors.Is(svc.DeleteTrack(context.Background(), eventID, trackID, uuid.New()), sentinel) {
+		t.Error("expected sentinel error to propagate from Delete")
+	}
+}
+
 // --- license enforcement tests ---
 
 func license1Event(eventID uuid.UUID) *model.Event {

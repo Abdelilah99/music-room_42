@@ -5,6 +5,10 @@ import (
 	"net/smtp"
 )
 
+type EmailSender interface {
+	Send(to, subject, body string) error
+}
+
 type EmailService struct {
 	host     string
 	port     string
