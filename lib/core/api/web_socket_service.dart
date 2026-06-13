@@ -5,7 +5,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:music_room/core/services/token_storage.dart';
-import 'package:web_socket_channel/io.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 enum WsConnectionState { connecting, connected, disconnected, error }
@@ -67,17 +66,23 @@ class WebSocketService {
 
     final base = dotenv.env['API_BASE_URL'] ?? '';
     final wsBase = base.replaceFirst(RegExp(r'^http'), 'ws');
-    final uri = Uri.parse('$wsBase$_path');
     // Fresh token read on every connect/reconnect so a refreshed access token
     // is always used — avoids stale-token failures after the interceptor rotates it.
     final token = await _getToken();
-    final headers = token != null
-        ? <String, dynamic>{'Authorization': 'Bearer $token'}
-        : <String, dynamic>{};
+    // The token goes in the query param, not an Authorization header: browsers
+    // cannot set headers on a WebSocket handshake, and the server reads `token`
+    // from the query first. Using the cross-platform connector so the socket
+    // works on web as well as mobile.
+    var uri = Uri.parse('$wsBase$_path');
+    if (token != null) {
+      uri = uri.replace(
+        queryParameters: {...uri.queryParameters, 'token': token},
+      );
+    }
 
     late WebSocketChannel channel;
     try {
-      channel = IOWebSocketChannel.connect(uri, headers: headers);
+      channel = WebSocketChannel.connect(uri);
       await channel.ready;
     } catch (_) {
       if (!_intentionalClose) _scheduleReconnect();
