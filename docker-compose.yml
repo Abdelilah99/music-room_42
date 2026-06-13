@@ -21,6 +21,20 @@ services:
       - "8025:8025"
       - "1025:1025"
 
+  migrate:
+    build:
+      context: ./server
+      dockerfile: Dockerfile.dev
+    volumes:
+      - ./server:/app
+      - go_modules:/go/pkg/mod
+    env_file:
+      - ./server/.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["go", "run", "./cmd/migrate/main.go", "up"]
+
   server:
     build:
       context: ./server
@@ -37,6 +51,8 @@ services:
         condition: service_healthy
       mailpit:
         condition: service_started
+      migrate:
+        condition: service_completed_successfully
 
 volumes:
   postgres_data:
