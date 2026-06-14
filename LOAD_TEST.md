@@ -30,6 +30,11 @@ These tests were run on a development machine, not the production target. Result
 
 Ramp: 50 -> 100 -> 150 VUs over 3m30s
 
+Each VU authenticates as a distinct user (`loadtest1..150@musicroom.test`) so votes
+actually INSERT into the database and contend on the unique(user, track) constraint
+rather than bouncing off it on every request. 409 responses only appear after a VU
+has exhausted all 50 tracks in the pool (one vote per user per track per run).
+
 | Metric | Value |
 |--------|-------|
 | Total iterations | 50,051 |
@@ -42,7 +47,7 @@ Ramp: 50 -> 100 -> 150 VUs over 3m30s
 
 **Threshold result:** FAILED -- p95 (606 ms) exceeded the 500 ms target.
 
-**Breaking point:** ~100 VUs. At 100+ concurrent voters the p95 response time crosses 500 ms. The 409 path (duplicate vote) is intentional and accepted by the check; all server responses were correct.
+**Breaking point:** ~100 VUs. At 100+ concurrent voters the p95 response time crosses 500 ms.
 
 ---
 
@@ -84,20 +89,30 @@ Ramp: 50 -> 100 -> 150 VUs over 3m30s (70% add track, 30% move track)
 
 **Threshold result:** FAILED -- both thresholds exceeded (error rate 10.4% > 1%, p95 783 ms > 500 ms).
 
-**Breaking point:** ~150 VUs. Failures are concentrated in the move-track operation (PATCH `/position`). Under concurrent writes to the same playlist, the service-layer position validator rejects moves where the requested position exceeds the current track count, which shifts rapidly as VUs add tracks in parallel. Add-track operations remained error-free throughout.
+**Breaking point:** ~150 VUs. Failures are concentrated in the move-track operation (PATCH `/position`). Two factors contribute: (1) the test requests positions 1-10 regardless of current track count, which can exceed the count early in the ramp before enough tracks have been added; (2) serializable transaction conflicts under concurrent writes cause aborts that are not retried at the service layer (see issue #139). Add-track operations remained error-free throughout.
 
 ---
 
 ## Running the tests
 
+Install k6 if not already present:
+
 ```bash
-# Start the stack with elevated rate limits and seed the test user
+# Linux (x86_64)
+wget -q https://github.com/grafana/k6/releases/download/v0.57.0/k6-v0.57.0-linux-amd64.tar.gz \
+  -O - | tar -xz --strip-components=1 -C ~/.local/bin k6-v0.57.0-linux-amd64/k6
+```
+
+Then run everything:
+
+```bash
+# Start the stack with elevated rate limits and seed all test users
 make load-test
 ```
 
 The `load-test` target:
 1. Starts the server with `docker-compose.loadtest.yml` overrides
-2. Seeds `loadtest@musicroom.test` / `loadtest123` into the DB
+2. Seeds `loadtest@musicroom.test` and `loadtest1..150@musicroom.test` into the DB (all with password `loadtest123`)
 3. Runs all three k6 scripts sequentially
 
 To run a single script manually:

@@ -206,7 +206,6 @@ _load-seed:
 	@echo ">> Starting server with load-test rate limits..."
 	$(DC) -f docker-compose.yml -f docker-compose.loadtest.yml up -d
 	@$(MAKE) --no-print-directory _wait-server
-	@echo ">> Seeding load-test user..."
 	@bash load_tests/seed.sh
 
 _load-run:
