@@ -36,6 +36,7 @@ APK_RELEASE := build/app/outputs/flutter-apk/app-release.apk
         mobile re-mobile web re-web apk apk-release install devices \
         test test-server test-mobile lint \
         migrate migrate-down seed docs deps clean info \
+        load-test _load-seed _load-run \
         _ensure-device _adb-reverse _wait-server
 
 ## ---- Help -----------------------------------------------------------------
@@ -194,6 +195,27 @@ info: ## Print the running services, URLs and ports
 	@echo ""
 	@echo "  Next: 'make mobile' (device) | 'make web' (browser) | 'make logs' | 'make down'"
 	@echo ""
+
+## ---- Load tests -----------------------------------------------------------
+
+K6 := $(shell command -v k6 2>/dev/null || echo ~/.local/bin/k6)
+
+load-test: _load-seed _load-run ## Seed DB + run all 3 k6 load-test scripts sequentially
+
+_load-seed:
+	@echo ">> Starting server with load-test rate limits..."
+	$(DC) -f docker-compose.yml -f docker-compose.loadtest.yml up -d
+	@$(MAKE) --no-print-directory _wait-server
+	@echo ">> Seeding load-test user..."
+	@bash load_tests/seed.sh
+
+_load-run:
+	@echo ">> [1/3] Track vote load test"
+	$(K6) run --env BASE_URL=$(API_URL) load_tests/track_vote.js
+	@echo ">> [2/3] Delegation load test"
+	$(K6) run --env BASE_URL=$(API_URL) load_tests/delegation.js
+	@echo ">> [3/3] Playlist editor load test"
+	$(K6) run --env BASE_URL=$(API_URL) load_tests/playlist_editor.js
 
 ## ---- Internal helpers -----------------------------------------------------
 
