@@ -4,8 +4,10 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/gin-gonic/gin"
+	"music-room/internal/middleware"
 	"music-room/internal/service"
+
+	"github.com/gin-gonic/gin"
 )
 
 type AuthHandler struct {
@@ -16,17 +18,29 @@ func NewAuthHandler(auth *service.AuthService) *AuthHandler {
 	return &AuthHandler{auth: auth}
 }
 
+type RegisterRequest struct {
+	Email    string `json:"email"    binding:"required,email"`
+	Password string `json:"password" binding:"required,min=8"`
+}
+
+// Register godoc
+// @Summary      Register a new user
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Param        body body RegisterRequest true "Email and password"
+// @Success      201 {object} MessageResponse
+// @Failure      400 {object} ErrorResponse
+// @Failure      409 {object} ErrorResponse "Email already in use"
+// @Failure      422 {object} ErrorResponse
+// @Router       /auth/register [post]
 func (h *AuthHandler) Register(c *gin.Context) {
-	var body struct {
-		Email    string `json:"email"    binding:"required"`
-		Password string `json:"password" binding:"required"`
-	}
-	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "email and password are required", "code": "INVALID_REQUEST"})
+	var req RegisterRequest
+	if !middleware.BindAndValidate(c, &req) {
 		return
 	}
 
-	if err := h.auth.Register(c.Request.Context(), body.Email, body.Password); err != nil {
+	if err := h.auth.Register(c.Request.Context(), req.Email, req.Password); err != nil {
 		switch {
 		case errors.Is(err, service.ErrEmailInUse):
 			c.JSON(http.StatusConflict, gin.H{"error": "email already in use", "code": "EMAIL_IN_USE"})
@@ -43,6 +57,15 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{"message": "registration successful, check your email to verify your account"})
 }
 
+// VerifyEmail godoc
+// @Summary      Verify email address
+// @Tags         auth
+// @Produce      json
+// @Param        token query string true "Verification token"
+// @Success      200 {object} MessageResponse
+// @Failure      400 {object} ErrorResponse "Invalid or expired token"
+// @Failure      500 {object} ErrorResponse
+// @Router       /auth/verify-email [get]
 func (h *AuthHandler) VerifyEmail(c *gin.Context) {
 	token := c.Query("token")
 	if token == "" {
@@ -63,16 +86,27 @@ func (h *AuthHandler) VerifyEmail(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "email verified successfully"})
 }
 
+type ResendVerificationRequest struct {
+	Email string `json:"email" binding:"required,email"`
+}
+
+// ResendVerification godoc
+// @Summary      Resend email verification link
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Param        body body ResendVerificationRequest true "Registered email"
+// @Success      200 {object} MessageResponse
+// @Failure      400 {object} ErrorResponse
+// @Failure      500 {object} ErrorResponse
+// @Router       /auth/resend-verification [post]
 func (h *AuthHandler) ResendVerification(c *gin.Context) {
-	var body struct {
-		Email string `json:"email" binding:"required"`
-	}
-	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "email is required", "code": "INVALID_REQUEST"})
+	var req ResendVerificationRequest
+	if !middleware.BindAndValidate(c, &req) {
 		return
 	}
 
-	if err := h.auth.ResendVerification(c.Request.Context(), body.Email); err != nil {
+	if err := h.auth.ResendVerification(c.Request.Context(), req.Email); err != nil {
 		switch {
 		case errors.Is(err, service.ErrInvalidEmail):
 			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "invalid email address", "code": "INVALID_EMAIL"})
@@ -85,16 +119,27 @@ func (h *AuthHandler) ResendVerification(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "if that email is registered and unverified, a new verification link has been sent"})
 }
 
+type ForgotPasswordRequest struct {
+	Email string `json:"email" binding:"required,email"`
+}
+
+// ForgotPassword godoc
+// @Summary      Request a password reset link
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Param        body body ForgotPasswordRequest true "Registered email"
+// @Success      200 {object} MessageResponse
+// @Failure      400 {object} ErrorResponse
+// @Failure      500 {object} ErrorResponse
+// @Router       /auth/forgot-password [post]
 func (h *AuthHandler) ForgotPassword(c *gin.Context) {
-	var body struct {
-		Email string `json:"email" binding:"required"`
-	}
-	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "email is required", "code": "INVALID_REQUEST"})
+	var req ForgotPasswordRequest
+	if !middleware.BindAndValidate(c, &req) {
 		return
 	}
 
-	if err := h.auth.ForgotPassword(c.Request.Context(), body.Email); err != nil {
+	if err := h.auth.ForgotPassword(c.Request.Context(), req.Email); err != nil {
 		switch {
 		case errors.Is(err, service.ErrInvalidEmail):
 			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "invalid email address", "code": "INVALID_EMAIL"})
@@ -107,17 +152,29 @@ func (h *AuthHandler) ForgotPassword(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "if that email is registered, a reset link has been sent"})
 }
 
+type ResetPasswordRequest struct {
+	Token    string `json:"token"    binding:"required"`
+	Password string `json:"password" binding:"required,min=8"`
+}
+
+// ResetPassword godoc
+// @Summary      Reset password using a reset token
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Param        body body ResetPasswordRequest true "Reset token and new password"
+// @Success      200 {object} MessageResponse
+// @Failure      400 {object} ErrorResponse "Invalid/expired/used token"
+// @Failure      422 {object} ErrorResponse "Password too weak"
+// @Failure      500 {object} ErrorResponse
+// @Router       /auth/reset-password [post]
 func (h *AuthHandler) ResetPassword(c *gin.Context) {
-	var body struct {
-		Token    string `json:"token"    binding:"required"`
-		Password string `json:"password" binding:"required"`
-	}
-	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "token and password are required", "code": "INVALID_REQUEST"})
+	var req ResetPasswordRequest
+	if !middleware.BindAndValidate(c, &req) {
 		return
 	}
 
-	if err := h.auth.ResetPassword(c.Request.Context(), body.Token, body.Password); err != nil {
+	if err := h.auth.ResetPassword(c.Request.Context(), req.Token, req.Password); err != nil {
 		switch {
 		case errors.Is(err, service.ErrInvalidToken):
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid reset token", "code": "INVALID_TOKEN"})

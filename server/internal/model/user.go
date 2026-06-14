@@ -30,6 +30,20 @@ type PasswordResetToken struct {
 	UsedAt    *time.Time
 }
 
+type UserProvider struct {
+	ID         uuid.UUID
+	UserID     uuid.UUID
+	Provider   string
+	ProviderID string
+	CreatedAt  time.Time
+}
+
+type UserSearchResult struct {
+	ID    string `json:"id"`
+	Email string `json:"email"`
+	Name  string `json:"name,omitempty"`
+}
+
 type RefreshToken struct {
 	ID        uuid.UUID
 	UserID    uuid.UUID

@@ -12,6 +12,7 @@
 .swiftpm/
 .claude/
 migrate_working_dir/
+server/coverage.out
 
 # IntelliJ related
 *.iml

@@ -1,12 +1,802 @@
-import 'package:flutter/material.dart';
+import 'dart:async';
+import 'dart:convert';
 
-class PlaylistEditorScreen extends StatelessWidget {
-  const PlaylistEditorScreen({super.key});
+import 'package:dio/dio.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:music_room/core/api/playlists_api.dart';
+import 'package:music_room/core/api/web_socket_service.dart';
+import 'package:music_room/core/models/playlist.dart';
+import 'package:music_room/core/widgets/friend_picker.dart';
+import 'package:music_room/core/widgets/music_search_sheet.dart';
+import 'package:music_room/features/playlist_editor/playlist_detail_provider.dart';
+import 'package:music_room/features/playlist_editor/playlists_provider.dart';
+import 'package:music_room/features/profile/profile_provider.dart';
+import 'package:music_room/shared/widgets/snackbar_helper.dart';
+import 'package:music_room/shared/widgets/state_widgets.dart';
+
+class PlaylistEditorScreen extends ConsumerStatefulWidget {
+  const PlaylistEditorScreen({super.key, required this.playlistId});
+
+  final String playlistId;
+
+  @override
+  ConsumerState<PlaylistEditorScreen> createState() =>
+      _PlaylistEditorScreenState();
+}
+
+class _PlaylistEditorScreenState extends ConsumerState<PlaylistEditorScreen> {
+  StreamSubscription<dynamic>? _wsSub;
+  // trackId → intended position; used to detect echo vs. genuine conflict.
+  final Map<String, int> _pendingMoves = {};
+  bool _inviting = false;
+  bool _addingTrack = false;
+  // Gates the reconnect banner — don't show it on the initial handshake.
+  bool _everConnected = false;
+  // Set when a server EDIT_NOT_ALLOWED proves the caller cannot edit. Flips the
+  // screen to read-only even if can_edit came back optimistically true.
+  bool _editBlocked = false;
+
+  String get _wsPath => '/api/v1/playlists/${widget.playlistId}/ws';
+
+  // Detects the playlist EDIT_NOT_ALLOWED envelope ({"code": "EDIT_NOT_ALLOWED"}).
+  bool _isEditBlocked(DioException e) =>
+      (e.response?.data as Map?)?['code'] == 'EDIT_NOT_ALLOWED';
+
+  // Switches to read-only after the server refuses an edit.
+  void _flagReadOnly() {
+    if (!_editBlocked && mounted) setState(() => _editBlocked = true);
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _wsSub = ref
+          .read(wsProvider(_wsPath).notifier)
+          .messageStream
+          .listen(_onWsMessage);
+    });
+  }
+
+  @override
+  void dispose() {
+    _wsSub?.cancel();
+    super.dispose();
+  }
+
+  void _onWsMessage(dynamic raw) {
+    if (!mounted) return;
+    final Map<String, dynamic> event;
+    try {
+      event =
+          (raw is String ? jsonDecode(raw) : raw) as Map<String, dynamic>;
+    } catch (_) {
+      return;
+    }
+
+    final type = event['type'] as String?;
+    final notifier =
+        ref.read(playlistDetailProvider(widget.playlistId).notifier);
+
+    switch (type) {
+      case 'track_added':
+        final track = PlaylistTrack.fromJson(
+            event['track'] as Map<String, dynamic>);
+        notifier.applyTrackAdded(track);
+      case 'track_removed':
+        notifier.applyTrackRemoved(event['track_id'] as String);
+      case 'track_moved':
+        final trackId = event['track_id'] as String;
+        final position = (event['position'] as num).toInt();
+        final pending = _pendingMoves.remove(trackId);
+        notifier.applyTrackMoved(trackId, position);
+        // Only show conflict snackbar when the server position differs from
+        // our optimistic position — equal means it is our own echo.
+        if (pending != null && pending != position && mounted) {
+          AppSnackBar.show(
+            context,
+            message: 'Track moved by another collaborator',
+            type: SnackBarType.warning,
+          );
+        }
+    }
+  }
+
+  // onReorderItem already delivers the adjusted insertion index (no subtract-1 needed).
+  void _onReorderItem(int oldIndex, int newIndex) {
+    final tracks =
+        ref.read(playlistDetailProvider(widget.playlistId)).value?.tracks;
+    if (tracks == null || oldIndex >= tracks.length) return;
+
+    final trackId = tracks[oldIndex].id;
+    final newPosition = newIndex + 1; // 1-based
+
+    setState(() => _pendingMoves[trackId] = newPosition);
+
+    ref
+        .read(playlistDetailProvider(widget.playlistId).notifier)
+        .moveTrack(trackId, newPosition)
+        .catchError((Object e) {
+      if (!mounted) return;
+      setState(() => _pendingMoves.remove(trackId));
+      final isEditBlocked = e is DioException && _isEditBlocked(e);
+      if (isEditBlocked) _flagReadOnly();
+      AppSnackBar.show(
+        context,
+        message: isEditBlocked
+            ? 'You don\'t have permission to edit this playlist'
+            : 'Failed to move track',
+        type: SnackBarType.error,
+      );
+    });
+  }
+
+  Future<void> _removeTrack(Playlist playlist, PlaylistTrack track) async {
+    try {
+      await ref
+          .read(playlistDetailProvider(widget.playlistId).notifier)
+          .removeTrack(playlist.id, track.id);
+      if (mounted) {
+        AppSnackBar.show(
+          context,
+          message: '${track.title} removed',
+          type: SnackBarType.success,
+        );
+      }
+    } on DioException catch (e) {
+      if (!mounted) return;
+      final isEditBlocked = _isEditBlocked(e);
+      if (isEditBlocked) _flagReadOnly();
+      AppSnackBar.show(
+        context,
+        message: isEditBlocked
+            ? 'You don\'t have permission to edit this playlist'
+            : 'Failed to remove track',
+        type: SnackBarType.error,
+      );
+    } catch (_) {
+      if (mounted) {
+        AppSnackBar.show(
+          context,
+          message: 'Failed to remove track',
+          type: SnackBarType.error,
+        );
+      }
+    }
+  }
+
+  Future<void> _handleInvite(Playlist playlist) async {
+    final friend = await showFriendPicker(context);
+    if (friend == null || !mounted) return;
+
+    setState(() => _inviting = true);
+    try {
+      await ref
+          .read(playlistsApiProvider)
+          .inviteUser(playlist.id, friend.id);
+      if (mounted) {
+        AppSnackBar.show(
+          context,
+          message: '${friend.displayName} invited',
+          type: SnackBarType.success,
+        );
+      }
+    } on DioException catch (e) {
+      if (!mounted) return;
+      if (e.response?.statusCode == 409) {
+        AppSnackBar.show(
+          context,
+          message: '${friend.displayName} is already invited',
+          type: SnackBarType.warning,
+        );
+      } else {
+        AppSnackBar.show(
+          context,
+          message: 'Failed to invite user',
+          type: SnackBarType.error,
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        AppSnackBar.show(
+          context,
+          message: 'Failed to invite user',
+          type: SnackBarType.error,
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _inviting = false);
+    }
+  }
+
+  Future<void> _handleAddTrack(String playlistId) async {
+    final track = await showMusicSearchSheet(context);
+    if (track == null || !mounted) return;
+
+    setState(() => _addingTrack = true);
+    try {
+      await ref.read(playlistsApiProvider).addTrack(
+            playlistId,
+            externalId: track.externalId,
+            title: track.title,
+            artist: track.artist,
+          );
+      // WS track_added echo will insert the track via applyTrackAdded.
+    } on DioException catch (e) {
+      if (!mounted) return;
+      final isConflict = e.response?.statusCode == 409;
+      final isEditBlocked = _isEditBlocked(e);
+      if (isEditBlocked) _flagReadOnly();
+      AppSnackBar.show(
+        context,
+        message: isConflict
+            ? '${track.title} is already in this playlist'
+            : isEditBlocked
+                ? 'You don\'t have permission to edit this playlist'
+                : 'Failed to add track',
+        type: isConflict || isEditBlocked
+            ? SnackBarType.warning
+            : SnackBarType.error,
+      );
+    } catch (_) {
+      if (mounted) {
+        AppSnackBar.show(
+          context,
+          message: 'Failed to add track',
+          type: SnackBarType.error,
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _addingTrack = false);
+    }
+  }
+
+  // Owner: edit the playlist's name, visibility, and license.
+  Future<void> _editPlaylist(Playlist playlist) async {
+    final result =
+        await showModalBottomSheet<({String name, String visibility, int license})>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => _PlaylistEditSheet(playlist: playlist),
+    );
+    if (result == null || !mounted) return;
+    try {
+      await ref.read(playlistsApiProvider).update(
+            playlist.id,
+            name: result.name,
+            visibility: result.visibility,
+            license: result.license,
+          );
+      ref.invalidate(playlistDetailProvider(widget.playlistId));
+      ref.invalidate(playlistsProvider);
+      if (mounted) {
+        AppSnackBar.show(context,
+            message: 'Playlist updated', type: SnackBarType.success);
+      }
+    } on DioException catch (e) {
+      if (!mounted) return;
+      final msg = (e.response?.data as Map?)?['error'] as String?;
+      AppSnackBar.show(context,
+          message: msg ?? 'Could not update the playlist',
+          type: SnackBarType.error);
+    }
+  }
+
+  // Owner: delete the playlist after confirmation, then return to the list.
+  Future<void> _deletePlaylist(Playlist playlist) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete playlist'),
+        content: Text('Delete "${playlist.name}"? This cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true || !mounted) return;
+    try {
+      await ref.read(playlistsApiProvider).delete(playlist.id);
+      ref.invalidate(playlistsProvider);
+      if (mounted) {
+        AppSnackBar.show(context,
+            message: 'Playlist deleted', type: SnackBarType.success);
+        Navigator.of(context).pop();
+      }
+    } on DioException catch (e) {
+      if (!mounted) return;
+      final msg = (e.response?.data as Map?)?['error'] as String?;
+      AppSnackBar.show(context,
+          message: msg ?? 'Could not delete the playlist',
+          type: SnackBarType.error);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    return const Scaffold(
-      body: Center(child: Text('Playlist Editor')),
+    final connState = ref.watch(wsProvider(_wsPath));
+    final detailAsync = ref.watch(playlistDetailProvider(widget.playlistId));
+    final profileAsync = ref.watch(myProfileProvider);
+
+    // Record the first successful connection so the banner only fires on
+    // subsequent drops, not during the initial handshake.
+    ref.listen<WsConnectionState>(wsProvider(_wsPath), (_, next) {
+      if (next == WsConnectionState.connected && !_everConnected) {
+        setState(() => _everConnected = true);
+      }
+    });
+
+    final showBanner = _everConnected &&
+        (connState == WsConnectionState.connecting ||
+            connState == WsConnectionState.error);
+
+    final playlist =
+        detailAsync.maybeWhen(data: (d) => d.playlist, orElse: () => null);
+    final currentUserId =
+        profileAsync.maybeWhen(data: (p) => p.id, orElse: () => null);
+
+    // Editable when the server says so and no edit has been refused this session.
+    final canEditNow = detailAsync.maybeWhen(
+          data: (d) => d.canEdit,
+          orElse: () => false,
+        ) &&
+        !_editBlocked;
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(playlist?.name ?? 'Playlist'),
+        actions: [
+          if (playlist != null && currentUserId == playlist.ownerId) ...[
+            IconButton(
+              onPressed: _inviting ? null : () => _handleInvite(playlist),
+              icon: const Icon(Icons.person_add_outlined),
+              tooltip: 'Invite collaborator',
+            ),
+            PopupMenuButton<String>(
+              tooltip: 'Playlist options',
+              onSelected: (v) {
+                if (v == 'edit') _editPlaylist(playlist);
+                if (v == 'delete') _deletePlaylist(playlist);
+              },
+              itemBuilder: (_) => const [
+                PopupMenuItem(value: 'edit', child: Text('Edit playlist')),
+                PopupMenuItem(value: 'delete', child: Text('Delete playlist')),
+              ],
+            ),
+          ],
+          Padding(
+            padding: const EdgeInsets.only(right: 12),
+            child: _WsDot(state: connState),
+          ),
+        ],
+      ),
+      floatingActionButton: (canEditNow && playlist != null)
+          ? FloatingActionButton(
+              onPressed: _addingTrack
+                  ? null
+                  : () => _handleAddTrack(playlist.id),
+              tooltip: 'Add track',
+              child: _addingTrack
+                  ? const SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: Colors.white),
+                    )
+                  : const Icon(Icons.add),
+            )
+          : null,
+      body: Column(
+        children: [
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 200),
+            child: showBanner
+                ? _ReconnectBanner(
+                    key: const ValueKey('banner'),
+                    isError: connState == WsConnectionState.error,
+                    onRetry: connState == WsConnectionState.error
+                        ? () =>
+                            ref.read(wsProvider(_wsPath).notifier).reconnect()
+                        : null,
+                  )
+                : const SizedBox.shrink(key: ValueKey('no-banner')),
+          ),
+          Expanded(
+            child: detailAsync.when(
+              loading: () => const AppLoadingWidget(),
+              error: (_, _) => AppErrorWidget(
+                message: 'Failed to load playlist. Check your connection.',
+                onRetry: () =>
+                    ref.invalidate(playlistDetailProvider(widget.playlistId)),
+              ),
+              data: (detail) {
+                final readOnly = !detail.canEdit || _editBlocked;
+                return Column(
+                  children: [
+                    _OwnerHeader(
+                      playlist: detail.playlist,
+                      readOnly: readOnly,
+                    ),
+                    const Divider(height: 1),
+                    Expanded(
+                      child: detail.tracks.isEmpty
+                          ? const AppEmptyStateWidget(
+                              icon: Icons.queue_music_outlined,
+                              message: 'No tracks yet',
+                            )
+                          : readOnly
+                              ? ListView.builder(
+                                  itemCount: detail.tracks.length,
+                                  itemBuilder: (_, i) => _TrackTile(
+                                    key: ValueKey(detail.tracks[i].id),
+                                    track: detail.tracks[i],
+                                    showDragHandle: false,
+                                  ),
+                                )
+                              : ReorderableListView.builder(
+                                  itemCount: detail.tracks.length,
+                                  onReorderItem: _onReorderItem,
+                                  itemBuilder: (_, i) {
+                                    final track = detail.tracks[i];
+                                    return Dismissible(
+                                      key: ValueKey(track.id),
+                                      direction: DismissDirection.endToStart,
+                                      onDismissed: (_) =>
+                                          _removeTrack(detail.playlist, track),
+                                      background: Container(
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .errorContainer,
+                                        alignment: Alignment.centerRight,
+                                        padding:
+                                            const EdgeInsets.only(right: 20),
+                                        child: Icon(
+                                          Icons.delete_outline,
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .onErrorContainer,
+                                        ),
+                                      ),
+                                      child: _TrackTile(
+                                        track: track,
+                                        showDragHandle: true,
+                                      ),
+                                    );
+                                  },
+                                ),
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _OwnerHeader extends ConsumerWidget {
+  const _OwnerHeader({required this.playlist, required this.readOnly});
+
+  final Playlist playlist;
+  final bool readOnly;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final ownerName =
+        ref.watch(playlistOwnerNameProvider(playlist.ownerId));
+    final scheme = Theme.of(context).colorScheme;
+
+    final name =
+        ownerName.maybeWhen(data: (n) => n, orElse: () => null);
+    final initial =
+        (name != null && name.isNotEmpty) ? name[0].toUpperCase() : '?';
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 16,
+            backgroundColor: scheme.primaryContainer,
+            child: Text(
+              initial,
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 14,
+                color: scheme.onPrimaryContainer,
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'by ${name ?? '…'}',
+              style: Theme.of(context).textTheme.bodyMedium,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          const SizedBox(width: 8),
+          if (readOnly) ...[
+            const _ViewOnlyBadge(),
+            const SizedBox(width: 8),
+          ],
+          _LicenseBadge(isOpen: playlist.isOpenLicense),
+        ],
+      ),
+    );
+  }
+}
+
+class _ViewOnlyBadge extends StatelessWidget {
+  const _ViewOnlyBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.visibility_outlined, size: 13, color: scheme.onSurfaceVariant),
+          const SizedBox(width: 4),
+          Text(
+            'View only',
+            style: TextStyle(
+              color: scheme.onSurfaceVariant,
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LicenseBadge extends StatelessWidget {
+  const _LicenseBadge({required this.isOpen});
+
+  final bool isOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(
+          isOpen ? Icons.public : Icons.lock_outline,
+          size: 14,
+          color: scheme.outline,
+        ),
+        const SizedBox(width: 4),
+        Text(
+          isOpen ? 'Anyone can edit' : 'Invited editors only',
+          style: Theme.of(context)
+              .textTheme
+              .bodySmall
+              ?.copyWith(color: scheme.outline),
+        ),
+      ],
+    );
+  }
+}
+
+class _TrackTile extends StatelessWidget {
+  const _TrackTile({
+    super.key,
+    required this.track,
+    required this.showDragHandle,
+  });
+
+  final PlaylistTrack track;
+  final bool showDragHandle;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
+    return ListTile(
+      contentPadding: const EdgeInsets.fromLTRB(16, 4, 8, 4),
+      leading: CircleAvatar(
+        backgroundColor: scheme.secondaryContainer,
+        child: Text(
+          '${track.position}',
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 13,
+            color: scheme.onSecondaryContainer,
+          ),
+        ),
+      ),
+      title: Text(
+        track.title,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(fontWeight: FontWeight.w500),
+      ),
+      subtitle: Text(
+        track.artist,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+      trailing: showDragHandle ? const Icon(Icons.drag_handle) : null,
+    );
+  }
+}
+
+class _WsDot extends StatelessWidget {
+  const _WsDot({required this.state});
+
+  final WsConnectionState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final (color, label) = switch (state) {
+      WsConnectionState.connected => (Colors.green, 'Connected'),
+      WsConnectionState.connecting => (Colors.orange, 'Connecting…'),
+      WsConnectionState.disconnected => (Colors.grey, 'Disconnected'),
+      WsConnectionState.error => (Colors.red, 'Connection error'),
+    };
+    return Tooltip(
+      message: label,
+      child: CircleAvatar(radius: 6, backgroundColor: color),
+    );
+  }
+}
+
+class _ReconnectBanner extends StatelessWidget {
+  const _ReconnectBanner({
+    super.key,
+    required this.isError,
+    required this.onRetry,
+  });
+
+  final bool isError;
+  final VoidCallback? onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final bgColor = isError ? scheme.errorContainer : scheme.tertiaryContainer;
+    final fgColor =
+        isError ? scheme.onErrorContainer : scheme.onTertiaryContainer;
+    final label =
+        isError ? 'Connection lost — live updates paused' : 'Reconnecting…';
+
+    return Material(
+      color: bgColor,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        child: Row(
+          children: [
+            Icon(
+              isError ? Icons.wifi_off : Icons.sync,
+              size: 18,
+              color: fgColor,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(label,
+                  style: TextStyle(color: fgColor, fontSize: 13)),
+            ),
+            if (onRetry != null)
+              TextButton(
+                onPressed: onRetry,
+                style: TextButton.styleFrom(foregroundColor: fgColor),
+                child: const Text('Retry'),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// Owner edit form for a playlist's name, visibility, and license. Returns the
+// new values, or null if dismissed.
+class _PlaylistEditSheet extends StatefulWidget {
+  const _PlaylistEditSheet({required this.playlist});
+
+  final Playlist playlist;
+
+  @override
+  State<_PlaylistEditSheet> createState() => _PlaylistEditSheetState();
+}
+
+class _PlaylistEditSheetState extends State<_PlaylistEditSheet> {
+  late final TextEditingController _nameCtrl;
+  late String _visibility;
+  late int _license;
+
+  @override
+  void initState() {
+    super.initState();
+    _nameCtrl = TextEditingController(text: widget.playlist.name);
+    _visibility = widget.playlist.visibility;
+    _license = widget.playlist.license;
+  }
+
+  @override
+  void dispose() {
+    _nameCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(
+        left: 16,
+        right: 16,
+        top: 16,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Edit playlist', style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _nameCtrl,
+            decoration: const InputDecoration(
+              labelText: 'Name',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 16),
+          const Text('Visibility'),
+          const SizedBox(height: 8),
+          SegmentedButton<String>(
+            segments: const [
+              ButtonSegment(value: 'public', label: Text('Public')),
+              ButtonSegment(value: 'private', label: Text('Private')),
+            ],
+            selected: {_visibility},
+            onSelectionChanged: (s) => setState(() => _visibility = s.first),
+          ),
+          const SizedBox(height: 16),
+          const Text('License'),
+          const SizedBox(height: 8),
+          SegmentedButton<int>(
+            segments: const [
+              ButtonSegment(value: 0, label: Text('Anyone edits')),
+              ButtonSegment(value: 1, label: Text('Invited only')),
+            ],
+            selected: {_license},
+            onSelectionChanged: (s) => setState(() => _license = s.first),
+          ),
+          const SizedBox(height: 24),
+          FilledButton(
+            onPressed: () {
+              final name = _nameCtrl.text.trim();
+              if (name.isEmpty) return;
+              Navigator.pop(
+                context,
+                (name: name, visibility: _visibility, license: _license),
+              );
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
     );
   }
 }

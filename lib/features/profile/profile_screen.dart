@@ -1,12 +1,565 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+import 'package:music_room/core/api/profile_api.dart';
+import 'package:music_room/core/models/user_profile.dart';
+import 'package:music_room/features/auth/auth_provider.dart';
+import 'package:music_room/features/auth/google_sign_in_service.dart';
+import 'package:music_room/features/profile/profile_provider.dart';
 
-class ProfileScreen extends StatelessWidget {
+class ProfileScreen extends ConsumerWidget {
   const ProfileScreen({super.key});
 
   @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final profileAsync = ref.watch(myProfileProvider);
+
+    if (profileAsync.isLoading && profileAsync.value == null) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (profileAsync.hasError && profileAsync.value == null) {
+      return Scaffold(
+        body: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Failed to load profile',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 12),
+              FilledButton(
+                onPressed: () => ref.invalidate(myProfileProvider),
+                child: const Text('Retry'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    final profile = profileAsync.requireValue;
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('My Profile'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.logout),
+            tooltip: 'Log out',
+            onPressed: () => _showLogoutDialog(context, ref),
+          ),
+        ],
+      ),
+      body: RefreshIndicator(
+        onRefresh: () async {
+          ref.invalidate(myProfileProvider);
+          await ref.read(myProfileProvider.future);
+        },
+        child: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            _ProfileHeader(profile: profile),
+            const SizedBox(height: 16),
+            Card(
+              child: ListTile(
+                leading: const Icon(Icons.people_outlined),
+                title: const Text('Friends'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => context.push('/profile/friends'),
+              ),
+            ),
+            const SizedBox(height: 12),
+            const _GoogleLinkCard(),
+            const SizedBox(height: 12),
+            _SectionCard(
+              title: 'Public Info',
+              icon: Icons.public_outlined,
+              subtitle: 'Visible to everyone',
+              fieldConfigs: [
+                _FieldConfig('Display Name', profile.publicInfo?.displayName),
+                _FieldConfig('Bio', profile.publicInfo?.bio, multiline: true),
+              ],
+              onSave: (values) async {
+                await ref.read(myProfileProvider.notifier).patchSection(
+                      publicInfo: PublicInfo(
+                        displayName: values[0],
+                        bio: values[1],
+                      ),
+                    );
+              },
+            ),
+            const SizedBox(height: 12),
+            _SectionCard(
+              title: 'Friends Only',
+              icon: Icons.people_outlined,
+              subtitle: 'Visible to friends',
+              fieldConfigs: [
+                _FieldConfig('Phone', profile.friendsInfo?.phone),
+                _FieldConfig('Location', profile.friendsInfo?.location),
+              ],
+              onSave: (values) async {
+                await ref.read(myProfileProvider.notifier).patchSection(
+                      friendsInfo: FriendsInfo(
+                        phone: values[0],
+                        location: values[1],
+                      ),
+                    );
+              },
+            ),
+            const SizedBox(height: 12),
+            _SectionCard(
+              title: 'Private',
+              icon: Icons.lock_outlined,
+              subtitle: 'Visible only to you',
+              fieldConfigs: [
+                _FieldConfig('Real Name', profile.privateInfo?.realName),
+                _FieldConfig(
+                  'Date of Birth',
+                  profile.privateInfo?.dateOfBirth,
+                  hint: 'e.g. 1990-06-15',
+                ),
+              ],
+              onSave: (values) async {
+                await ref.read(myProfileProvider.notifier).patchSection(
+                      privateInfo: PrivateInfo(
+                        realName: values[0],
+                        dateOfBirth: values[1],
+                      ),
+                    );
+              },
+            ),
+            const SizedBox(height: 12),
+            _SectionCard(
+              title: 'Music Preferences',
+              icon: Icons.music_note_outlined,
+              subtitle: 'Visible only to you',
+              fieldConfigs: [
+                _FieldConfig(
+                  'Genres',
+                  profile.musicPreferences?.genres,
+                  hint: 'e.g. Rock, Jazz, Electronic',
+                ),
+                _FieldConfig(
+                  'Favorite Artists',
+                  profile.musicPreferences?.favoriteArtists,
+                  hint: 'e.g. Daft Punk, Miles Davis',
+                ),
+              ],
+              onSave: (values) async {
+                await ref.read(myProfileProvider.notifier).patchSection(
+                      musicPreferences: MusicPreferences(
+                        genres: values[0],
+                        favoriteArtists: values[1],
+                      ),
+                    );
+              },
+            ),
+            const SizedBox(height: 16),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ProfileHeader extends StatelessWidget {
+  final UserProfile profile;
+  const _ProfileHeader({required this.profile});
+
+  @override
   Widget build(BuildContext context) {
-    return const Scaffold(
-      body: Center(child: Text('Profile')),
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            CircleAvatar(
+              radius: 28,
+              backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+              child: Text(
+                profile.displayName[0].toUpperCase(),
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onPrimaryContainer,
+                    ),
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    profile.displayName,
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  if (profile.email != null)
+                    Text(
+                      profile.email!,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: Theme.of(context).colorScheme.outline,
+                          ),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _FieldConfig {
+  final String label;
+  final String? initialValue;
+  final bool multiline;
+  final String? hint;
+
+  const _FieldConfig(
+    this.label,
+    this.initialValue, {
+    this.multiline = false,
+    this.hint,
+  });
+}
+
+class _SectionCard extends StatefulWidget {
+  final String title;
+  final IconData icon;
+  final String subtitle;
+  final List<_FieldConfig> fieldConfigs;
+  final Future<void> Function(List<String?>) onSave;
+
+  const _SectionCard({
+    required this.title,
+    required this.icon,
+    required this.subtitle,
+    required this.fieldConfigs,
+    required this.onSave,
+  });
+
+  @override
+  State<_SectionCard> createState() => _SectionCardState();
+}
+
+class _SectionCardState extends State<_SectionCard> {
+  bool _editing = false;
+  bool _saving = false;
+  late List<TextEditingController> _controllers;
+
+  @override
+  void initState() {
+    super.initState();
+    _controllers = _buildControllers();
+  }
+
+  @override
+  void didUpdateWidget(covariant _SectionCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Sync controllers to refreshed profile data, but only when not editing so
+    // the user's in-progress text is preserved during a background re-fetch.
+    if (!_editing) {
+      _disposeControllers();
+      _controllers = _buildControllers();
+    }
+  }
+
+  @override
+  void dispose() {
+    _disposeControllers();
+    super.dispose();
+  }
+
+  List<TextEditingController> _buildControllers() => widget.fieldConfigs
+      .map((f) => TextEditingController(text: f.initialValue ?? ''))
+      .toList();
+
+  void _disposeControllers() {
+    for (final c in _controllers) {
+      c.dispose();
+    }
+  }
+
+  void _cancelEdit() {
+    _disposeControllers();
+    _controllers = _buildControllers();
+    setState(() => _editing = false);
+  }
+
+  Future<void> _save() async {
+    setState(() => _saving = true);
+    try {
+      final values = _controllers
+          .map((c) => c.text.trim().isEmpty ? null : c.text.trim())
+          .toList();
+      await widget.onSave(values);
+      if (mounted) {
+        setState(() {
+          _editing = false;
+          _saving = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _saving = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Save failed: $e'),
+            backgroundColor: Theme.of(context).colorScheme.error,
+          ),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(widget.icon,
+                    size: 20, color: Theme.of(context).colorScheme.primary),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(widget.title,
+                          style: Theme.of(context).textTheme.titleMedium),
+                      Text(
+                        widget.subtitle,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: Theme.of(context).colorScheme.outline,
+                            ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (!_editing)
+                  IconButton(
+                    icon: const Icon(Icons.edit_outlined),
+                    tooltip: 'Edit',
+                    onPressed: () => setState(() => _editing = true),
+                  ),
+              ],
+            ),
+            const Divider(height: 24),
+            if (_editing) ...[
+              ..._buildEditFields(),
+              const SizedBox(height: 4),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: _saving ? null : _cancelEdit,
+                    child: const Text('Cancel'),
+                  ),
+                  const SizedBox(width: 8),
+                  FilledButton(
+                    onPressed: _saving ? null : _save,
+                    child: _saving
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Text('Save'),
+                  ),
+                ],
+              ),
+            ] else
+              ..._buildReadFields(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  List<Widget> _buildReadFields() {
+    final hasAny = widget.fieldConfigs
+        .any((f) => f.initialValue != null && f.initialValue!.isNotEmpty);
+    if (!hasAny) {
+      return [
+        Text(
+          'No information added yet.',
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: Theme.of(context).colorScheme.outline,
+                fontStyle: FontStyle.italic,
+              ),
+        ),
+      ];
+    }
+    return widget.fieldConfigs.map((f) {
+      final hasValue = f.initialValue != null && f.initialValue!.isNotEmpty;
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: 130,
+              child: Text(
+                '${f.label}:',
+                style: const TextStyle(fontWeight: FontWeight.w500),
+              ),
+            ),
+            Expanded(
+              child: Text(
+                hasValue ? f.initialValue! : '—',
+                style: hasValue
+                    ? null
+                    : TextStyle(
+                        color: Theme.of(context).colorScheme.outline),
+              ),
+            ),
+          ],
+        ),
+      );
+    }).toList();
+  }
+
+  List<Widget> _buildEditFields() {
+    return List.generate(widget.fieldConfigs.length, (i) {
+      final f = widget.fieldConfigs[i];
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: TextFormField(
+          controller: _controllers[i],
+          maxLines: f.multiline ? 3 : 1,
+          decoration: InputDecoration(
+            labelText: f.label,
+            hintText: f.hint,
+            border: const OutlineInputBorder(),
+          ),
+        ),
+      );
+    });
+  }
+}
+
+class _GoogleLinkCard extends ConsumerStatefulWidget {
+  const _GoogleLinkCard();
+
+  @override
+  ConsumerState<_GoogleLinkCard> createState() => _GoogleLinkCardState();
+}
+
+class _GoogleLinkCardState extends ConsumerState<_GoogleLinkCard> {
+  bool _loading = false;
+
+  Future<void> _linkGoogle() async {
+    setState(() => _loading = true);
+    try {
+      // getFreshIdToken signs out first to guarantee a non-cached token.
+      final idToken =
+          await ref.read(googleSignInServiceProvider).getFreshIdToken();
+      if (idToken == null) {
+        // User cancelled the Google sign-in sheet.
+        return;
+      }
+      await ref.read(profileApiProvider).linkGoogle(idToken: idToken);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Google account linked successfully.')),
+        );
+      }
+    } on PlatformException {
+      if (mounted) {
+        _showError('Sign in failed. Please try again.');
+      }
+    } on DioException catch (e) {
+      if (mounted) {
+        final body = e.response?.data;
+        final serverMsg = body is Map ? body['error'] as String? : null;
+        if (e.response?.statusCode == 409) {
+          _showError(serverMsg ?? 'This Google account is already linked.');
+        } else if (e.response?.statusCode == 401) {
+          _showError('Verification failed. Please try again.');
+        } else {
+          _showError('Something went wrong. Please try again.');
+        }
+      }
+    } catch (_) {
+      if (mounted) {
+        _showError('Something went wrong. Please try again.');
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  void _showError(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Theme.of(context).colorScheme.error,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: ListTile(
+        leading: const Icon(Icons.link_outlined),
+        title: const Text('Connect Google Account'),
+        subtitle: const Text('Link your Google account for quick sign-in'),
+        trailing: _loading
+            ? const SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : const Icon(Icons.chevron_right),
+        onTap: _loading ? null : _linkGoogle,
+      ),
+    );
+  }
+}
+
+Future<void> _showLogoutDialog(BuildContext context, WidgetRef ref) async {
+  // Capture the messenger before any async gap so it remains valid after
+  // logout() triggers navigation away from this screen.
+  final messenger = ScaffoldMessenger.of(context);
+
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Text('Log out?'),
+      content: const Text('You will be returned to the sign-in screen.'),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(ctx).pop(false),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(ctx).pop(true),
+          child: const Text('Log out'),
+        ),
+      ],
+    ),
+  );
+
+  if (confirmed != true) return;
+
+  final serverOk = await ref.read(authProvider.notifier).logout();
+  if (!serverOk) {
+    messenger.showSnackBar(
+      const SnackBar(
+        content: Text('Logged out. Server could not be reached.'),
+        duration: Duration(seconds: 3),
+      ),
     );
   }
 }

@@ -25,12 +25,12 @@ var (
 )
 
 type AuthService struct {
-	repo     *repository.AuthRepository
-	emailSvc *EmailService
+	repo     repository.AuthRepository
+	emailSvc EmailSender
 	appURL   string
 }
 
-func NewAuthService(repo *repository.AuthRepository, emailSvc *EmailService, appURL string) *AuthService {
+func NewAuthService(repo repository.AuthRepository, emailSvc EmailSender, appURL string) *AuthService {
 	return &AuthService{repo: repo, emailSvc: emailSvc, appURL: appURL}
 }
 
