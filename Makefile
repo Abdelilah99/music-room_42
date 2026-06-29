@@ -10,7 +10,11 @@
 SHELL := /bin/bash
 
 -include .env
-export
+
+# Host-side service endpoints (the server maps container 8080 -> host 8081).
+# Set HOSTIP in .env to your machine's IP if running on a remote/WSL host.
+HOSTIP      ?= localhost
+export HOSTIP
 
 # Tooling. Override on the command line if your paths differ, e.g.
 #   make mobile DEVICE=ABC123 ADB=/opt/android/platform-tools/adb
@@ -21,10 +25,6 @@ DEVICE       ?= $(shell $(ADB) get-serialno 2>/dev/null)
 WEB_PORT     ?= 5000
 APP_ID       ?= com.musicroom.music_room
 DC           := docker compose
-
-# Host-side service endpoints (the server maps container 8080 -> host 8081).
-# Set HOSTIP in .env to your machine's IP if running on a remote/WSL host.
-HOSTIP      ?= localhost
 API_URL     := http://$(HOSTIP):8081
 HEALTH_URL  := http://$(HOSTIP):8081/health
 SWAGGER_URL := http://$(HOSTIP):8081/api/v1/docs/index.html
