@@ -17,6 +17,12 @@
 
 set -euo pipefail
 
+# ---- OS check ---------------------------------------------------------------
+if [[ "$(uname -s)" != "Linux" ]]; then
+  echo "[ERROR] This script only supports Linux. Install dependencies manually on $(uname -s)." >&2
+  exit 1
+fi
+
 # ---- Detect shell rc file ---------------------------------------------------
 case "${SHELL##*/}" in
   zsh)  RCFILE="$HOME/.zshrc" ;;
@@ -147,7 +153,7 @@ if [ "${JAVA_INSTALL:-no}" = "yes" ]; then
   fi
   ok "JDK 17 installed to $JAVA_HOME_DIR"
   ensure_path "$JAVA_HOME_DIR/bin"
-  add_profile_line "jdk-17" $'\n# Java JDK 17\nexport PATH="$PATH:$HOME/.local/jdk-17/bin"'
+  add_profile_line "jdk-17" $'# Java JDK 17\nexport PATH="$PATH:$HOME/.local/jdk-17/bin"'
 fi
 
 # ---- Flutter SDK ------------------------------------------------------------
@@ -170,7 +176,7 @@ elif [ -x "$FLUTTER_BIN" ]; then
   if version_ge "$FLUTTER_VER" "$FLUTTER_MIN"; then
     ok "Flutter $FLUTTER_VER found in $FLUTTER_HOME"
     ensure_path "$FLUTTER_HOME/bin"
-    add_profile_line "flutter" $'\n# Flutter SDK\nexport PATH="$PATH:$HOME/flutter/bin"'
+    add_profile_line "flutter" $'# Flutter SDK\nexport PATH="$PATH:$HOME/flutter/bin"'
   else
     warn "Flutter in $FLUTTER_HOME is too old ($FLUTTER_VER) — reinstalling"
     rm -rf "$FLUTTER_HOME"
@@ -190,7 +196,7 @@ if [ "${FLUTTER_INSTALL:-no}" = "yes" ]; then
   rm /tmp/flutter.tar.xz
   ok "Flutter installed to $FLUTTER_HOME"
   ensure_path "$FLUTTER_HOME/bin"
-  add_profile_line "flutter" $'\n# Flutter SDK\nexport PATH="$PATH:$HOME/flutter/bin"'
+  add_profile_line "flutter" $'# Flutter SDK\nexport PATH="$PATH:$HOME/flutter/bin"'
 fi
 
 # Cache common Flutter artifacts (no iOS/Web — saves bandwidth)
@@ -225,7 +231,7 @@ else
   fi
 
   ensure_path "$CMDLINE_BIN"
-  add_profile_line "Android/Sdk" $'\n# Android SDK\nexport ANDROID_HOME="$HOME/Android/Sdk"\nexport PATH="$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator"'
+  add_profile_line "Android/Sdk" $'# Android SDK\nexport ANDROID_HOME="$HOME/Android/Sdk"\nexport PATH="$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator"'
 fi
 
 # Install essential Android SDK components (idempotent via sdkmanager)
@@ -252,7 +258,7 @@ if in_path k6; then
 elif [ -x "$K6_BIN" ]; then
   ok "k6 already installed at $K6_BIN"
   ensure_path "$HOME/.local/bin"
-  add_profile_line "local/bin" $'\n# Local binaries\nexport PATH="$PATH:$HOME/.local/bin"'
+  add_profile_line "local/bin" $'# Local binaries\nexport PATH="$PATH:$HOME/.local/bin"'
 else
   info "Installing k6 to $K6_BIN"
   ensure_dir "$HOME/.local/bin"
@@ -267,7 +273,7 @@ else
   rm -rf /tmp/k6.tar.gz "/tmp/k6-v0.57.0-linux-${K6_ARCH}"
   ok "k6 v0.57.0 installed"
   ensure_path "$HOME/.local/bin"
-  add_profile_line "local/bin" $'\n# Local binaries\nexport PATH="$PATH:$HOME/.local/bin"'
+  add_profile_line "local/bin" $'# Local binaries\nexport PATH="$PATH:$HOME/.local/bin"'
 fi
 
 # ---- Project dependencies ---------------------------------------------------

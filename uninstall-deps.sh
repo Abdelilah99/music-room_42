@@ -2,7 +2,7 @@
 #
 # uninstall-deps.sh — Remove dependencies installed by install-deps.sh.
 #
-# Usage:  bash /tmp/uninstall-deps.sh
+# Usage:  bash uninstall-deps.sh
 #
 # Removes everything that install-deps.sh may have set up, while keeping
 # system-installed tools (docker, wget, curl, unzip, java) untouched.
